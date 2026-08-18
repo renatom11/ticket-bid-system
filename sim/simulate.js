@@ -73,6 +73,26 @@ if (r.bySegment) {
   }
 }
 
+// Hot cells: with popularity-weighted availability, individual shows carry
+// real premiums over their tier's floor.
+const premiums = [...drop.cellPrices]
+  .map(([key, p]) => ({ key, premium: p - drop.floors[key.split('|')[1]], price: p }))
+  .filter((c) => c.premium > 0)
+  .sort((a, b) => b.premium - a.premium)
+  .slice(0, 6);
+if (premiums.length) {
+  console.log('\nHottest cells (price over floor):');
+  for (const c of premiums) {
+    const [show, tier] = c.key.split('|');
+    console.log(`  ${show.padEnd(12)} ${tier}  $${c.price}  (+$${c.premium})`);
+  }
+}
+
+// Show-count distribution of the crowd (uniform 1..N by design).
+const hist = new Map();
+for (const b of drop.bidders.values()) hist.set(b.showings.length, (hist.get(b.showings.length) ?? 0) + 1);
+console.log('\nShow-count distribution:', [...hist.entries()].sort((a, b) => a[0] - b[0]).map(([k, v]) => `${k}:${v}`).join('  '));
+
 // Guarantee check: at exact clearing prices, nobody who can afford a cell is
 // left out, and every winner is in a best cell for them.
 let violations = 0;

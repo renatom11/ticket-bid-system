@@ -155,12 +155,20 @@ test('adding shows grows supply and relieves prices; flexible bidders pick the n
   assert.deepEqual(picky.showings, ['S1']);
 });
 
-test('behavioral crowd converges and reports segments, with true budgets in the hundreds', () => {
+test('behavioral crowd converges and reports segments, with stretch ceilings in the hundreds', () => {
   const drop = makeDrop();
   const rng = mulberry32(3);
   const bots = addBots(drop, 1500, rng);
-  const trueT1 = bots.flatMap((b) => (b.bot.trueMaxes.t1 ? [b.bot.trueMaxes.t1] : []));
-  assert.ok(trueT1.some((m) => m >= 300), 'superfans worth $300+ exist');
+  const stretchT1 = bots.flatMap((b) => (b.bot.stretch.t1 ? [b.bot.stretch.t1] : []));
+  assert.ok(stretchT1.some((m) => m >= 300), 'superfans stretching past $300 exist');
+  for (const b of bots) {
+    for (const t of Object.keys(b.bot.comfort)) {
+      assert.ok(b.bot.stretch[t] >= b.bot.comfort[t], 'stretch is never below comfort');
+    }
+  }
+  // Show counts are uniform-ish over 1..N: with 2 shows, both counts appear a lot
+  const oneShow = bots.filter((b) => b.showings.length === 1).length;
+  assert.ok(oneShow > 500 && oneShow < 1000, `~half pick a single show (got ${oneShow})`);
   runToSettle(drop, rng);
   const bySegment = drop.results.bySegment;
   assert.ok(bySegment && Object.keys(bySegment).length >= 5);

@@ -16,9 +16,9 @@ import { solveMarket } from './market.js';
 const STABLE_ROUNDS_TO_SETTLE = 2;
 
 export class Drop {
-  constructor({ name = 'Prototype Drop', showings, maxRounds = 40 } = {}) {
+  constructor({ name = 'Prototype Drop', showings, maxRounds = 60 } = {}) {
     this.name = name;
-    this.showings = showings ?? ['Showing 1', 'Showing 2', 'Showing 3', 'Showing 4', 'Showing 5'];
+    this.showings = [...(showings ?? ['Showing 1', 'Showing 2', 'Showing 3', 'Showing 4', 'Showing 5'])];
     this.maxRounds = maxRounds;
     this.phase = 'lobby'; // lobby -> bidding -> settled
     this.round = 0;

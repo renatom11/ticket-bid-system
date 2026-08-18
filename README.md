@@ -60,18 +60,33 @@ Demo bidders are drawn from five socioeconomic segments (`src/bots.js`), each wi
 budget distribution — real long tails, so a superfan can be worth $500+ for prime seats while a
 student caps out near $20:
 
-| Segment | Share | Median budget (top tier) | Behavior |
-|---|---|---|---|
-| Superfans / high income | 7% | $260 | want Prime Center, won't sit up front |
-| Comfortable professionals | 18% | $110 | Tier 1–2, some flexibility |
-| Middle income | 40% | $55 | spread across Tiers 1–3 |
-| Budget-conscious | 25% | $28 | Tiers 2–4, any seat beats none |
-| Students / lowest budget | 10% | $16 | Tiers 3–4 |
+| Segment | Share | Median budget (top tier) | Stretch tolerance | Attention |
+|---|---|---|---|---|
+| Superfans / high income | 7% | $260 | +50–100% | reacts almost every tick |
+| Comfortable professionals | 18% | $110 | +30–70% | high |
+| Middle income | 40% | $55 | +20–50% | medium |
+| Budget-conscious | 25% | $28 | +10–35% | low-medium |
+| Students / lowest budget | 10% | $16 | +5–30% | low |
 
-Bots bid *behaviorally*: they anchor low near the floor (the way real buyers do) and raise
-toward their private true budget while they're losing — or give up. Prices published each tick
-are exact for the stated book, and the drop settles when the crowd stops moving. Settlement
-reports a per-segment equity breakdown (who got seated, at what average price).
+On top of the money scale, each bot has a behavioral profile:
+
+- **Availability**: an equal chance of being able to attend 1, 2, ... up to all N shows, with the
+  specific shows drawn by per-show popularity (a hot Friday-night show draws several times a
+  weekday matinee) — so hot-show premiums emerge naturally when a show's single-show-only demand
+  outgrows one room.
+- **Two-zone valuations, per tier**: a *comfort* price they'll bid up to quickly while losing,
+  and a *stretch* ceiling (comfort x (1 + tolerance), tolerance drawn separately per tier) they
+  grind toward reluctantly before giving up.
+- **Attention**: bots only react to a given tick with some probability — nobody watches every
+  refresh.
+- **FOMO**: a tier whose price jumped >8% since a bot last looked triggers 1.6x bigger raises.
+- **Quit hazard**: the longer they lose, the likelier they walk; losing with every accepted cell
+  priced beyond their stretch is certain exit.
+- **Late joiners**: ~25% of the crowd only arrives a few ticks into the bidding.
+
+Prices published each tick are exact for the stated book, and the drop settles when the crowd
+stops moving. Settlement reports a per-segment equity breakdown, the hottest cells, and the
+show-count distribution.
 
 ## What a run looks like
 
