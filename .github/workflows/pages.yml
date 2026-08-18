@@ -1,4 +1,8 @@
-name: Deploy demo to GitHub Pages
+name: Publish demo to GitHub Pages
+
+# Pages serves the gh-pages branch (auto-enabled when that branch first
+# appeared). This workflow regenerates gh-pages from web-demo/ on every
+# change, so the live site tracks the repo.
 
 on:
   push:
@@ -9,27 +13,24 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
   group: pages
   cancel-in-progress: true
 
 jobs:
-  deploy:
+  publish:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/configure-pages@v5
-        with:
-          enablement: true
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: web-demo
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Push web-demo to gh-pages
+        run: |
+          cd web-demo
+          touch .nojekyll
+          git init -b gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Deploy demo (from ${GITHUB_SHA})"
+          git push --force "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" gh-pages
