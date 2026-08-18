@@ -45,6 +45,14 @@
         <div id="you-panel" hidden>
           <h2>Your bid</h2>
           <div id="you-status"></div>
+          <div id="bump-row" hidden>
+            <div class="row-actions">
+              <button data-bump="1">Up bid $1</button>
+              <button data-bump="10">Up bid $10</button>
+              <button data-bump="100">Up bid $100</button>
+            </div>
+            <p class="muted" id="bump-hint" style="margin:0.35rem 0 0"></p>
+          </div>
           <fieldset id="you-tiers">
             <legend>Your max per tier (raise them any time before settlement)</legend>
           </fieldset>

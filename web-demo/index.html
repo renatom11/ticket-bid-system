@@ -201,6 +201,14 @@
       <div id="you-panel" hidden>
         <h2>Your bid</h2>
         <div id="you-status"></div>
+        <div id="bump-row">
+          <div class="row-actions">
+            <button data-bump="1">Up bid $1</button>
+            <button data-bump="10">Up bid $10</button>
+            <button data-bump="100">Up bid $100</button>
+          </div>
+          <p class="hint" id="bump-hint" style="margin:0.35rem 0 0"></p>
+        </div>
         <fieldset id="you-tiers"><legend>Your max per tier — raise them any time before settlement</legend></fieldset>
         <div class="row-actions">
           <button id="update-btn" class="primary">Update maxes</button>
@@ -672,6 +680,12 @@ function renderYou(you) {
   $('#you-tiers').hidden = !editable;
   $('#update-btn').hidden = !editable;
   $('#withdraw-btn').hidden = !editable;
+  $('#bump-row').hidden = !editable;
+  if (editable) {
+    const bumpTier = drop.targetTier(you) ?? you.tierMaxes[0].tierId;
+    const tm = you.tierMaxes.find((x) => x.tierId === bumpTier);
+    $('#bump-hint').textContent = 'Raises your ' + tierById(bumpTier).name + ' max (now $' + tm.maxPrice + ')';
+  }
 
   if (you.withdrawn) {
     st.innerHTML = '<div class="you-status-card">You dropped out. You won’t be charged.</div>';
@@ -758,6 +772,16 @@ $('#withdraw-btn').addEventListener('click', () => {
   const you = drop.bidders.get(youId);
   if (you && drop.phase !== 'settled') { you.withdrawn = true; render(); }
 });
+document.querySelectorAll('[data-bump]').forEach((btn) => btn.addEventListener('click', () => {
+  const you = youId && drop.bidders.get(youId);
+  if (!you || you.withdrawn || drop.phase === 'settled') return;
+  const tierId = drop.targetTier(you) ?? you.tierMaxes[0].tierId;
+  const tm = you.tierMaxes.find((x) => x.tierId === tierId);
+  tm.maxPrice += Number(btn.dataset.bump);
+  const input = document.querySelector('input[name="ymax-' + tierId + '"]');
+  if (input) input.value = tm.maxPrice;
+  render();
+}));
 $('#start-btn').addEventListener('click', startDrop);
 document.querySelectorAll('[data-ctl]').forEach((btn) => btn.addEventListener('click', () => {
   const a = btn.dataset.ctl;

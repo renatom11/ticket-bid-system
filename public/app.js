@@ -213,12 +213,14 @@ function renderYou() {
     $('#you-tiers').hidden = true;
     $('#update-btn').hidden = true;
     $('#withdraw-btn').hidden = true;
+    $('#bump-row').hidden = true;
     return;
   }
   if (state.phase === 'settled') {
     $('#you-tiers').hidden = true;
     $('#update-btn').hidden = true;
     $('#withdraw-btn').hidden = true;
+    $('#bump-row').hidden = true;
     if (you.assignment) {
       const t = tierById(you.assignment.tierId);
       st.innerHTML = `<div class="you-status-card">🎟️ <span class="big">You're in!</span><br>
@@ -243,6 +245,10 @@ function renderYou() {
   tf.hidden = false;
   $('#update-btn').hidden = false;
   $('#withdraw-btn').hidden = false;
+  $('#bump-row').hidden = false;
+  const bumpTier = you.targetTier ?? you.tierMaxes[0].tierId;
+  const bumpMax = you.tierMaxes.find((x) => x.tierId === bumpTier).maxPrice;
+  $('#bump-hint').textContent = `Raises your ${tierById(bumpTier).name} max (now $${bumpMax})`;
   if (tf.dataset.built !== you.id) {
     tf.dataset.built = you.id;
     tf.querySelectorAll('.check-row').forEach((n) => n.remove());
@@ -328,6 +334,24 @@ function segmentTable(bySegment) {
 
 function wireButtons() {
   $('#join-btn').addEventListener('click', join);
+  document.querySelectorAll('[data-bump]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const you = state?.you;
+      if (!you || you.withdrawn || state.phase === 'settled') return;
+      const tierId = you.targetTier ?? you.tierMaxes[0].tierId;
+      const tierMaxes = you.tierMaxes.map((tm) =>
+        tm.tierId === tierId ? { ...tm, maxPrice: tm.maxPrice + Number(btn.dataset.bump) } : tm
+      );
+      try {
+        await api('/api/update', { bidderId, tierMaxes });
+        const input = document.querySelector(`input[name="ymax-${tierId}"]`);
+        if (input) input.value = tierMaxes.find((tm) => tm.tierId === tierId).maxPrice;
+        await refresh();
+      } catch (e) {
+        $('#you-error').textContent = e.message;
+      }
+    });
+  });
   $('#update-btn').addEventListener('click', updateMaxes);
   $('#withdraw-btn').addEventListener('click', async () => {
     await api('/api/withdraw', { bidderId });
