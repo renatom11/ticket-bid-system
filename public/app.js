@@ -336,7 +336,7 @@ function wireButtons() {
   document.querySelectorAll('[data-admin]').forEach((btn) => {
     btn.addEventListener('click', async () => {
       const action = btn.dataset.admin;
-      await api(`/api/admin/${action}`, action === 'bots' ? { count: 300 } : {});
+      await api(`/api/admin/${action}`, action === 'bots' ? { count: Number(btn.dataset.count) } : {});
       if (action === 'reset') {
         bidderId = null;
         sessionStorage.removeItem('bidderId');

@@ -204,7 +204,9 @@
         <div class="row-actions">
           <button id="start-btn" class="primary">Start the drop</button>
           <button data-ctl="tick">Force next tick</button>
-          <button data-ctl="bots">Add 300 bidders</button>
+          <button data-ctl="bots" data-count="100">Add 100</button>
+          <button data-ctl="bots" data-count="1000">Add 1,000</button>
+          <button data-ctl="bots" data-count="10000">Add 10,000</button>
           <button data-ctl="reset" class="danger">Reset</button>
         </div>
         <p class="hint">Bidding ticks every 8 seconds. The crowd is drawn from five socioeconomic segments — students on a $16 budget up to superfans worth $300–700+ for prime seats — so you can watch prices spike, sag back, and settle. Join before or during bidding to play against them.</p>
@@ -750,7 +752,7 @@ $('#start-btn').addEventListener('click', startDrop);
 document.querySelectorAll('[data-ctl]').forEach((btn) => btn.addEventListener('click', () => {
   const a = btn.dataset.ctl;
   if (a === 'tick') { if (drop.phase === 'lobby') beginBidding(); doTick(); }
-  if (a === 'bots') { if (drop.phase !== 'settled') { addBots(drop, 300); render(); } }
+  if (a === 'bots') { if (drop.phase !== 'settled') { addBots(drop, Number(btn.dataset.count)); render(); } }
   if (a === 'reset') reset();
 }));
 

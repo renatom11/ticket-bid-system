@@ -97,7 +97,8 @@ what moves the number — `node sim/simulate.js 6000` settles Tier 1 at $164.
 
 Open http://localhost:3000, expand **Demo controls**:
 
-1. **Add 300 bots** a few times to create a crowd (bots have randomized tastes/budgets).
+1. **Add 100 / 1,000 / 10,000 bots** to create a crowd (bots are drawn from the socioeconomic
+   segments above).
 2. Join the drop yourself with your own filters.
 3. **Open drop** (45s lobby) or **Skip lobby** to start ticks immediately (one every 12s —
    configurable via `LOBBY_SECONDS` / `ROUND_SECONDS` env vars; **Force next price tick** fast-forwards).

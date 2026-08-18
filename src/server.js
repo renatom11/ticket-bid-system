@@ -127,7 +127,7 @@ const server = http.createServer(async (req, res) => {
           scheduleTick();
           return send(200, publicState(null));
         case '/api/admin/bots':
-          addBots(drop, Math.min(Number(body.count ?? 150), 2000));
+          addBots(drop, Math.min(Number(body.count ?? 100), 10000));
           return send(200, publicState(null));
         case '/api/admin/reset':
           reset();
