@@ -40,7 +40,7 @@ export class Drop {
 
   // tierMaxes: ordered array of {tierId, maxPrice} — order is the bidder's
   // preference; they cascade down the list as prices climb past their maxes.
-  addBidder({ name, showings, tierMaxes }) {
+  addBidder({ name, showings, tierMaxes, segment }) {
     if (this.phase === 'settled') throw new UserError('Drop already settled');
     const accepted = (showings ?? []).filter((s) => this.showings.includes(s));
     if (accepted.length === 0) throw new UserError('Pick at least one showing');
@@ -55,6 +55,7 @@ export class Drop {
       showings: accepted,
       tierMaxes: cleaned,
       joinedAt: this.bidders.size,
+      segment: segment ?? null,
       withdrawn: false,
       assignment: null, // {tierId, showing, seat: {row, seat}, pricePaid} once settled
     };
@@ -220,12 +221,27 @@ export class Drop {
       ])
     );
     const active = [...this.bidders.values()].filter((b) => !b.withdrawn);
+    // Equity view: who got in, per socioeconomic segment (when bidders carry one).
+    let bySegment = null;
+    if (active.some((b) => b.segment)) {
+      bySegment = {};
+      for (const b of active) {
+        const key = b.segment ?? 'unlabeled';
+        const row = (bySegment[key] ??= { bidders: 0, winners: 0, totalPaid: 0 });
+        row.bidders += 1;
+        if (b.assignment) {
+          row.winners += 1;
+          row.totalPaid += b.assignment.pricePaid;
+        }
+      }
+    }
     return {
       rounds: this.round,
       winners: winners.length,
       participants: active.length,
       revenue: winners.reduce((sum, b) => sum + b.assignment.pricePaid, 0),
       byTier,
+      bySegment,
     };
   }
 

@@ -2,7 +2,7 @@
 // round-by-round price discovery. Usage: npm run sim [-- <botCount> <seed>]
 
 import { Drop } from '../src/engine.js';
-import { addBots } from '../src/bots.js';
+import { addBots, SEGMENTS } from '../src/bots.js';
 import { TIERS, TIER_ORDER } from '../src/venue.js';
 
 const botCount = Number(process.argv[2] ?? 2500);
@@ -49,5 +49,18 @@ for (const tier of TIERS) {
   console.log(
     `${tier.name.padEnd(24)} settled $${String(row.finalPrice).padStart(4)} · sold ${row.sold}/${row.supply}`
   );
+}
+
+if (r.bySegment) {
+  console.log('\nWho got in, by segment:');
+  for (const seg of SEGMENTS) {
+    const row = r.bySegment[seg.id];
+    if (!row) continue;
+    const pct = Math.round((row.winners / row.bidders) * 100);
+    const avg = row.winners ? Math.round(row.totalPaid / row.winners) : 0;
+    console.log(
+      `${seg.name.padEnd(28)} ${String(row.winners).padStart(4)}/${String(row.bidders).padEnd(4)} seated (${String(pct).padStart(3)}%) · avg paid $${avg}`
+    );
+  }
 }
 console.log();

@@ -87,9 +87,12 @@ with its own demand.
 - Full auction engine with price clocks, tier cascade, re-entry, convergence, forced-settle
   rationing, and seat assignment — pure JS, unit-tested.
 - Web UI: live tier boards with price history, the seat map with our zones, join/raise-max/drop-out
-  flow, demo crowd of simulated bidders with randomized tastes.
-- CLI simulation: 2,500 bidders reproducibly converging in ~10 rounds (Tier 1: $30 → $109 → $102,
-  sold out exactly).
+  flow, and a demo crowd drawn from five socioeconomic segments — students on a ~$16 budget up to
+  superfans whose lognormal budget tail passes $500 for prime seats.
+- CLI simulation: 2,500 bidders reproducibly converging to equilibrium, with a per-segment equity
+  report (who got seated, at what average price). A key property shows up here: the wealthy don't
+  set the settled price — the marginal winner does — so a $400-budget superfan pays the same
+  clearing price as everyone else in the tier.
 - A single-file browser version of the whole thing, publishable as a static page.
 
 ## Roadmap / stretch goals

@@ -207,7 +207,7 @@
           <button data-ctl="bots">Add 300 bidders</button>
           <button data-ctl="reset" class="danger">Reset</button>
         </div>
-        <p class="hint">Bidding ticks every 8 seconds. Simulated bidders have randomized tastes and budgets, so you can watch prices spike, sag back, and settle — join before or during bidding to play against them.</p>
+        <p class="hint">Bidding ticks every 8 seconds. The crowd is drawn from five socioeconomic segments — students on a $16 budget up to superfans worth $300–700+ for prime seats — so you can watch prices spike, sag back, and settle. Join before or during bidding to play against them.</p>
       </div>
     </section>
   </div>
@@ -292,7 +292,7 @@ class Drop {
     );
     this.results = null;
   }
-  addBidder({ name, showings, tierMaxes }) {
+  addBidder({ name, showings, tierMaxes, segment }) {
     const accepted = (showings ?? []).filter((s) => this.showings.includes(s));
     if (accepted.length === 0) throw new Error('Pick at least one showing');
     const cleaned = (tierMaxes ?? [])
@@ -305,6 +305,7 @@ class Drop {
       showings: accepted,
       tierMaxes: cleaned,
       joinedAt: this.bidders.size,
+      segment: segment ?? null,
       withdrawn: false,
       assignment: null,
     };
@@ -395,49 +396,84 @@ class Drop {
     }
     this.phase = 'settled';
     const winners = [...this.bidders.values()].filter((b) => b.assignment);
+    const active = [...this.bidders.values()].filter((b) => !b.withdrawn);
+    const bySegment = {};
+    for (const b of active) {
+      if (!b.segment) continue;
+      const row = (bySegment[b.segment] ??= { bidders: 0, winners: 0, totalPaid: 0 });
+      row.bidders += 1;
+      if (b.assignment) { row.winners += 1; row.totalPaid += b.assignment.pricePaid; }
+    }
     this.results = {
       rounds: this.round,
       winners: winners.length,
-      participants: [...this.bidders.values()].filter((b) => !b.withdrawn).length,
+      participants: active.length,
       revenue: winners.reduce((s, b) => s + b.assignment.pricePaid, 0),
       byTier: Object.fromEntries(TIER_ORDER.map((t) => [t, {
         finalPrice: this.prices[t],
         sold: winners.filter((b) => b.assignment.tierId === t).length,
         supply: this.supply[t],
       }])),
+      bySegment,
     };
   }
 }
 
-/* ---------------- simulated crowd ---------------- */
+/* ---------------- simulated crowd: socioeconomic segments ---------------- */
+/* Budgets are lognormal per segment, with real long tails — a superfan can be
+   worth $500+ for prime seats. The uniform-price twist: the wealthy don't set
+   the settled price, the marginal winner does — so they pay the same clearing
+   price as everyone else in the tier. */
 
-const TOP_TIER_MEANS = { t1: 95, t2: 60, t3: 38, t4: 22 };
-const TOP_TIER_WEIGHTS = [['t1', 0.45], ['t2', 0.3], ['t3', 0.17], ['t4', 0.08]];
+const SEGMENTS = [
+  { id: 'superfan', name: 'Superfans / high income', weight: 0.07,
+    budget: { median: 260, sigma: 0.45 }, topTiers: [['t1', 0.9], ['t2', 0.1]], maxDepth: 2 },
+  { id: 'comfortable', name: 'Comfortable professionals', weight: 0.18,
+    budget: { median: 110, sigma: 0.4 }, topTiers: [['t1', 0.6], ['t2', 0.4]], maxDepth: 3 },
+  { id: 'middle', name: 'Middle income', weight: 0.4,
+    budget: { median: 55, sigma: 0.45 }, topTiers: [['t1', 0.35], ['t2', 0.4], ['t3', 0.25]], maxDepth: 3 },
+  { id: 'budget', name: 'Budget-conscious', weight: 0.25,
+    budget: { median: 28, sigma: 0.4 }, topTiers: [['t2', 0.15], ['t3', 0.5], ['t4', 0.35]], maxDepth: 4 },
+  { id: 'student', name: 'Students / lowest budget', weight: 0.1,
+    budget: { median: 16, sigma: 0.35 }, topTiers: [['t3', 0.3], ['t4', 0.7]], maxDepth: 4 },
+];
+const STEP_DOWN = 0.7;
+
+function pickWeighted(pairs, rng) {
+  const total = pairs.reduce((s, [, w]) => s + w, 0);
+  let r = rng() * total;
+  for (const [v, w] of pairs) { r -= w; if (r <= 0) return v; }
+  return pairs[pairs.length - 1][0];
+}
+function lognormal(median, sigma, rng) {
+  const u1 = Math.max(rng(), 1e-9), u2 = rng();
+  const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+  return Math.max(5, Math.round(median * Math.exp(sigma * z)));
+}
 
 function addBots(drop, count) {
   const rng = Math.random;
   for (let i = 0; i < count; i++) {
-    let r = rng(), topTier = 't4';
-    for (const [v, w] of TOP_TIER_WEIGHTS) { r -= w; if (r <= 0) { topTier = v; break; } }
+    const segment = pickWeighted(SEGMENTS.map((s) => [s, s.weight]), rng);
+    const topTier = pickWeighted(segment.topTiers, rng);
     const startIdx = TIER_ORDER.indexOf(topTier);
-    const depth = 1 + Math.floor(rng() * (TIER_ORDER.length - startIdx));
-    const n = (rng() + rng() + rng() - 1.5) / 1.5;
-    const budget = Math.max(5, Math.round(TOP_TIER_MEANS[topTier] * Math.exp(n * 0.6)));
+    const depth = Math.min(1 + Math.floor(rng() * segment.maxDepth), TIER_ORDER.length - startIdx);
+    const budget = lognormal(segment.budget.median, segment.budget.sigma, rng);
     const tierMaxes = [];
     for (let d = 0; d < depth; d++) {
-      tierMaxes.push({ tierId: TIER_ORDER[startIdx + d], maxPrice: Math.max(5, Math.round(budget * 0.75 ** d)) });
+      tierMaxes.push({ tierId: TIER_ORDER[startIdx + d], maxPrice: Math.max(5, Math.round(budget * STEP_DOWN ** d)) });
     }
     let showings = [...drop.showings];
     if (rng() >= 0.6) {
       showings = showings.sort(() => rng() - 0.5).slice(0, 1 + Math.floor(rng() * showings.length));
     }
-    drop.addBidder({ name: 'Bot', showings, tierMaxes });
+    drop.addBidder({ name: 'Bot', showings, tierMaxes, segment: segment.id });
   }
 }
 
 /* ---------------- app state + game loop ---------------- */
 
-const LOBBY_SECONDS = 15, ROUND_SECONDS = 8, SEED_BOTS = 2200;
+const LOBBY_SECONDS = 15, ROUND_SECONDS = 8, SEED_BOTS = 4000;
 let drop, youId, lobbyEndsAt, nextTickAt, timer, prevPrices;
 
 const $ = (s) => document.querySelector(s);
@@ -678,6 +714,15 @@ function renderResults() {
   if (drop.phase !== 'settled' || !drop.results) { panel.hidden = true; return; }
   panel.hidden = false;
   const r = drop.results;
+  let segRows = '';
+  for (const seg of SEGMENTS) {
+    const s = r.bySegment[seg.id];
+    if (!s) continue;
+    const pct = Math.round((s.winners / s.bidders) * 100);
+    const avg = s.winners ? Math.round(s.totalPaid / s.winners) : 0;
+    segRows += '<tr><td>' + seg.name + '</td><td class="num">' + s.winners + ' / ' + s.bidders +
+      ' (' + pct + '%)</td><td class="num">$' + avg + '</td></tr>';
+  }
   $('#results').innerHTML =
     '<p>' + r.winners + ' of ' + r.participants + ' bidders got seats in ' + r.rounds +
     ' rounds · total revenue <span class="mono">$' + r.revenue.toLocaleString() + '</span></p>' +
@@ -685,7 +730,12 @@ function renderResults() {
     TIERS.map((t) => {
       const row = r.byTier[t.id];
       return '<tr><td>' + t.name + '</td><td class="num">$' + row.finalPrice + '</td><td class="num">' + row.sold + ' / ' + row.supply + '</td></tr>';
-    }).join('') + '</table>';
+    }).join('') + '</table>' +
+    (segRows
+      ? '<h2 style="margin-top:1.1rem">Who got in, by segment</h2>' +
+        '<p class="hint" style="margin:0 0 0.5rem">The crowd spans socioeconomic backgrounds — superfans here are willing to pay $300–700+ for prime seats, but under uniform pricing they pay the same settled price as the marginal winner.</p>' +
+        '<table class="results"><tr><th>Segment</th><th>Seated</th><th>Avg paid</th></tr>' + segRows + '</table>'
+      : '');
 }
 
 /* ---------------- wiring ---------------- */

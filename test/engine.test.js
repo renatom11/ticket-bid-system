@@ -143,6 +143,28 @@ test('forced settle rations oversubscribed tiers by join order and cascades the 
   assert.ok(inT1.every((b) => b.joinedAt < supply));
 });
 
+test('crowd spans socioeconomic backgrounds, including bidders willing to pay hundreds', () => {
+  const drop = makeDrop();
+  addBots(drop, 2000, mulberry32(3));
+  const bidders = [...drop.bidders.values()];
+  const t1Maxes = bidders
+    .flatMap((b) => b.tierMaxes.filter((tm) => tm.tierId === 't1'))
+    .map((tm) => tm.maxPrice);
+  assert.ok(t1Maxes.some((m) => m >= 300), 'some superfans will pay $300+ for prime seats');
+  assert.ok(t1Maxes.some((m) => m <= 60), 'and plenty of modest budgets exist alongside them');
+  const segments = new Set(bidders.map((b) => b.segment));
+  assert.ok(segments.size >= 5, 'all five segments are represented');
+
+  drop.openBidding();
+  let guard = 0;
+  while (drop.phase === 'bidding' && guard++ < 100) drop.tick();
+  const bySegment = drop.results.bySegment;
+  assert.ok(bySegment && Object.keys(bySegment).length >= 5, 'settlement reports per-segment outcomes');
+  for (const row of Object.values(bySegment)) {
+    assert.ok(row.winners <= row.bidders);
+  }
+});
+
 function mulberry32(a) {
   return () => {
     a |= 0;

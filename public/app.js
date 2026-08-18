@@ -294,6 +294,33 @@ function renderResults() {
     <p>${r.winners} of ${r.participants} bidders got seats in ${r.rounds} rounds · total revenue $${r.revenue.toLocaleString()}</p>
     <table class="results">
       <tr><th>Tier</th><th>Settled price</th><th>Seats sold</th></tr>${rows}
+    </table>
+    ${segmentTable(r.bySegment)}`;
+}
+
+const SEGMENT_NAMES = {
+  superfan: 'Superfans / high income',
+  comfortable: 'Comfortable professionals',
+  middle: 'Middle income',
+  budget: 'Budget-conscious',
+  student: 'Students / lowest budget',
+};
+
+function segmentTable(bySegment) {
+  if (!bySegment) return '';
+  const rows = Object.keys(SEGMENT_NAMES)
+    .filter((id) => bySegment[id])
+    .map((id) => {
+      const s = bySegment[id];
+      const pct = Math.round((s.winners / s.bidders) * 100);
+      const avg = s.winners ? Math.round(s.totalPaid / s.winners) : 0;
+      return `<tr><td>${SEGMENT_NAMES[id]}</td><td>${s.winners} / ${s.bidders} (${pct}%)</td><td>$${avg}</td></tr>`;
+    })
+    .join('');
+  if (!rows) return '';
+  return `<h2 style="margin-top:1rem">Who got in, by segment</h2>
+    <table class="results">
+      <tr><th>Segment</th><th>Seated</th><th>Avg paid</th></tr>${rows}
     </table>`;
 }
 

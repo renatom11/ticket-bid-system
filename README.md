@@ -51,24 +51,47 @@ The zones are our own, based on geometry rather than AMC's recommended-seat colo
 
 One drop = 5 simultaneous showings of that room, so e.g. Tier 1 has 440 seats total.
 
+## The simulated crowd
+
+Demo bidders are drawn from five socioeconomic segments (`src/bots.js`), each with a lognormal
+budget distribution — real long tails, so a superfan can be worth $500+ for prime seats while a
+student caps out near $20:
+
+| Segment | Share | Median budget (top tier) | Behavior |
+|---|---|---|---|
+| Superfans / high income | 7% | $260 | want Prime Center, won't sit up front |
+| Comfortable professionals | 18% | $110 | Tier 1–2, some flexibility |
+| Middle income | 40% | $55 | spread across Tiers 1–3 |
+| Budget-conscious | 25% | $28 | Tiers 2–4, any seat beats none |
+| Students / lowest budget | 10% | $16 | Tiers 3–4 |
+
+Settlement reports a per-segment equity breakdown (who got seated, at what average price).
+
 ## What a run looks like
 
 `npm run sim` (2500 bidders, deterministic seed):
 
 ```
 Round | t1 price (demand/supply) | t2 price          | t3 price          | t4 price
-start | $  30 (1133/440)         | $ 25 ( 755/490)   | $ 20 ( 399/480)   | $ 15 (210/770)
-    2 | $  91 (1133/440)         | $ 40 ( 755/490)   | $ 20 ( 399/480)   | $ 15 (210/770)
-    3 | $ 109 ( 671/440)         | $ 59 (1093/490)   | $ 20 ( 409/480)   | $ 15 (210/770)
-    4 | $ 102 ( 315/440)         | $ 76 ( 908/490)   | $ 24 ( 711/480)   | $ 15 (210/770)
-   10 | $ 102 ( 440/440)         | $ 66 ( 477/490)   | $ 42 ( 457/480)   | $ 15 (449/770)
+start | $  30 ( 756/440)         | $ 25 ( 648/490)   | $ 20 ( 494/480)   | $ 15 (316/770)
+    3 | $  60 ( 604/440)         | $ 38 ( 612/490)   | $ 22 ( 512/480)   | $ 15 (316/770)
+    7 | $  73 ( 471/440)         | $ 47 ( 535/490)   | $ 26 ( 493/480)   | $ 15 (373/770)
+   15 | $  78 ( 434/440)         | $ 50 ( 478/490)   | $ 28 ( 467/480)   | $ 15 (419/770)
 
-Settled in 10 rounds · 1823/2500 bidders seated · revenue $102,291
+Settled in 15 rounds · 1798/2500 bidders seated · revenue $77,113
+
+Who got in, by segment:
+Superfans / high income       187/188  seated ( 99%) · avg paid $75
+Comfortable professionals     418/444  seated ( 94%) · avg paid $63
+Middle income                 638/1018 seated ( 63%) · avg paid $41
+Budget-conscious              435/593  seated ( 73%) · avg paid $20
+Students / lowest budget      120/257  seated ( 47%) · avg paid $15
 ```
 
-Tier 1 spikes to $109, sheds bidders, sags back, and sells out exactly at $102. The priced-out
-crowd cascades into Tier 2 (demand 755 → 1093 in round 3), then Tier 3, and the whole system finds
-equilibrium.
+Prices climb, priced-out bidders cascade into lower tiers, and the system finds equilibrium. Note
+the uniform-price property at work: superfans willing to pay $300–700 for Tier 1 still pay the
+$78 clearing price, because the *marginal* winner sets the price, not the richest one. Scarcity is
+what moves the number — `node sim/simulate.js 6000` settles Tier 1 at $164.
 
 ## Demoing the web UI
 
