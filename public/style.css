@@ -85,17 +85,18 @@ main { padding: 1rem 1.5rem 3rem; max-width: 1200px; margin: 0 auto; }
 }
 .pending-bar .row-actions { margin-top: 0; }
 .pending-bar[hidden] { display: none; }
-.money-bar {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
-  display: flex; justify-content: center; gap: 2rem; flex-wrap: wrap;
-  background: var(--panel); border-top: 1px solid #2c2f3a;
-  padding: 0.55rem 1rem; font-size: 0.85rem;
+.ctl-line {
+  display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;
+  margin-top: 0.7rem; font-size: 0.88rem;
 }
-.money-bar b { font-variant-numeric: tabular-nums; }
-.money-bar .lift-up { color: var(--t1); }
-.money-bar .lift-down { color: var(--t4); }
-.money-bar .mlabel { color: var(--muted); }
-body { padding-bottom: 3.2rem; }
+.ctl-line .ctl-label { margin-right: 0.3rem; }
+.ctl-line b { font-variant-numeric: tabular-nums; }
+.ctl-line button { padding: 0.3rem 0.6rem; font-size: 0.8rem; }
+button.step { padding: 0.15rem 0.4rem; font-size: 0.72rem; }
+.flat-stat { margin-top: 0.8rem; font-size: 0.92rem; }
+.flat-stat b { font-variant-numeric: tabular-nums; }
+.flat-stat .lift-up { color: var(--t1); }
+.flat-stat .lift-down { color: var(--t4); }
 .you-here {
   display: inline-block; margin-top: 0.35rem; padding: 0.1rem 0.5rem; border-radius: 999px;
   background: var(--text); color: var(--bg);

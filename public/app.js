@@ -48,7 +48,9 @@ async function refresh() {
   renderSeatMap();
   renderYou();
   renderResults();
-  renderMoneyBar();
+  const you = state.you;
+  $('#bot-count').textContent = Math.max(0, state.bidderCount - (you && !you.withdrawn ? 1 : 0)).toLocaleString();
+  $('#show-count').textContent = state.showings.length;
 }
 
 /* ---------- header ---------- */
@@ -151,19 +153,10 @@ function renderPendingBar() {
   bar.hidden = false;
 }
 
-function renderMoneyBar() {
-  let total, count, label;
-  if (state.phase === 'settled' && state.results) {
-    total = state.results.revenue; count = state.results.winners; label = 'Total spent';
-  } else {
-    total = state.committed?.total ?? 0; count = state.committed?.bidders ?? 0; label = 'Committed right now';
-  }
-  const flat = count * FLAT_PRICE;
-  const diff = total - flat;
-  $('#money-bar').innerHTML =
-    `<span><span class="mlabel">${label}:</span> <b>$${total.toLocaleString()}</b> <span class="mlabel">across ${count.toLocaleString()} tickets</span></span>` +
-    `<span><span class="mlabel">Same tickets flat at $${FLAT_PRICE}:</span> <b>$${flat.toLocaleString()}</b></span>` +
-    `<span><span class="mlabel">Auction vs flat:</span> <b class="${diff >= 0 ? 'lift-up' : 'lift-down'}">${diff >= 0 ? '+' : '−'}$${Math.abs(diff).toLocaleString()}</b></span>`;
+function flatStatHtml(revenue, tickets) {
+  const flat = tickets * FLAT_PRICE;
+  const diff = revenue - flat;
+  return `<p class="flat-stat">Same ${tickets.toLocaleString()} tickets at a flat $${FLAT_PRICE} each would have made <b>$${flat.toLocaleString()}</b> — the auction made <b class="${diff >= 0 ? 'lift-up' : 'lift-down'}">${diff >= 0 ? '+$' : '−$'}${Math.abs(diff).toLocaleString()}</b> vs flat pricing.</p>`;
 }
 
 function deltaHtml(d) {
@@ -229,14 +222,6 @@ function buildJoinForm() {
   if (!state) return;
   $('#join-panel').hidden = false;
   $('#you-panel').hidden = true;
-  const sf = $('#join-showings');
-  sf.querySelectorAll('.check-row').forEach((n) => n.remove());
-  for (const s of state.showings) {
-    sf.insertAdjacentHTML(
-      'beforeend',
-      `<label class="check-row"><input type="checkbox" name="showing" value="${s}" checked> ${s}</label>`
-    );
-  }
   const tf = $('#join-tiers');
   tf.querySelectorAll('.check-row').forEach((n) => n.remove());
   for (const t of tiers) {
@@ -256,7 +241,7 @@ const suggestedMax = (tierId) => ({ t1: 80, t2: 55, t3: 35, t4: 20 })[tierId] ??
 
 async function join() {
   $('#join-error').textContent = '';
-  const showings = [...document.querySelectorAll('input[name="showing"]:checked')].map((i) => i.value);
+  const showings = [...state.showings];
   const tierMaxes = tiers
     .filter((t) => document.querySelector(`input[name="tier"][value="${t.id}"]`)?.checked)
     .map((t) => ({ tierId: t.id, maxPrice: Number(document.querySelector(`input[name="max-${t.id}"]`).value) }));
@@ -285,7 +270,6 @@ function renderYou() {
     $('#you-showings').hidden = true;
     $('#update-btn').hidden = true;
     $('#withdraw-btn').hidden = true;
-    $('#bump-row').hidden = true;
     return;
   }
   if (state.phase === 'settled') {
@@ -293,7 +277,6 @@ function renderYou() {
     $('#you-showings').hidden = true;
     $('#update-btn').hidden = true;
     $('#withdraw-btn').hidden = true;
-    $('#bump-row').hidden = true;
     if (you.assignment) {
       const t = tierById(you.assignment.tierId);
       st.innerHTML = `<div class="you-status-card">🎟️ <span class="big">You're in!</span><br>
@@ -333,15 +316,14 @@ function renderYou() {
   tf.hidden = false;
   $('#update-btn').hidden = false;
   $('#withdraw-btn').hidden = false;
-  $('#bump-row').hidden = false;
-  const bumpTier = you.targetTier ?? you.tierMaxes[0].tierId;
-  const bumpMax = you.tierMaxes.find((x) => x.tierId === bumpTier).maxPrice;
-  $('#bump-hint').textContent = `Raises your ${tierById(bumpTier).name} max (now $${bumpMax})`;
   if (tf.dataset.built !== you.id) {
     tf.dataset.built = you.id;
     tf.querySelectorAll('.check-row').forEach((n) => n.remove());
     for (const t of tiers) {
       const tm = you.tierMaxes.find((x) => x.tierId === t.id);
+      const steppers = ['-100', '-10', '-1', '+1', '+10', '+100']
+        .map((s) => `<button type="button" class="step" data-step="${s}" data-tier="${t.id}">${s}</button>`)
+        .join('');
       tf.insertAdjacentHTML(
         'beforeend',
         `<label class="check-row">
@@ -349,6 +331,7 @@ function renderYou() {
           <span class="tier-dot" style="background:var(--${t.id})"></span>
           <span style="flex:1">${t.name}</span>
           max $<input type="number" name="ymax-${t.id}" min="1" value="${tm ? tm.maxPrice : suggestedMax(t.id)}">
+          ${steppers}
         </label>`
       );
     }
@@ -389,7 +372,8 @@ function renderResults() {
     <table class="results">
       <tr><th>Tier</th><th>Settled price</th><th>Seats sold</th></tr>${rows}
     </table>
-    ${segmentTable(r.bySegment)}`;
+    ${segmentTable(r.bySegment)}
+    ${flatStatHtml(r.revenue, r.winners)}`;
 }
 
 const SEGMENT_NAMES = {
@@ -454,23 +438,19 @@ function wireButtons() {
       $('#you-error').textContent = e.message;
     }
   });
-  document.querySelectorAll('[data-bump]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const you = state?.you;
-      if (!you || you.withdrawn || state.phase === 'settled') return;
-      const tierId = you.targetTier ?? you.tierMaxes[0].tierId;
-      const tierMaxes = you.tierMaxes.map((tm) =>
-        tm.tierId === tierId ? { ...tm, maxPrice: tm.maxPrice + Number(btn.dataset.bump) } : tm
-      );
-      try {
-        await api('/api/update', { bidderId, tierMaxes });
-        const input = document.querySelector(`input[name="ymax-${tierId}"]`);
-        if (input) input.value = tierMaxes.find((tm) => tm.tierId === tierId).maxPrice;
-        await refresh();
-      } catch (e) {
-        $('#you-error').textContent = e.message;
-      }
-    });
+  $('#you-tiers').addEventListener('click', (e) => {
+    const btn = e.target.closest('button.step');
+    if (!btn) return;
+    e.preventDefault();
+    const you = state?.you;
+    if (!you || you.withdrawn || state.phase === 'settled') return;
+    const tierId = btn.dataset.tier;
+    const input = document.querySelector(`input[name="ymax-${tierId}"]`);
+    input.value = Math.max(1, Number(input.value || 0) + Number(btn.dataset.step));
+    if (Number(btn.dataset.step) > 0) {
+      document.querySelector(`input[name="ytier"][value="${tierId}"]`).checked = true;
+    }
+    updateMaxes(); // apply immediately
   });
   $('#update-btn').addEventListener('click', updateMaxes);
   $('#withdraw-btn').addEventListener('click', async () => {
@@ -480,7 +460,9 @@ function wireButtons() {
   document.querySelectorAll('[data-admin]').forEach((btn) => {
     btn.addEventListener('click', async () => {
       const action = btn.dataset.admin;
-      await api(`/api/admin/${action}`, action === 'bots' ? { count: Number(btn.dataset.count) } : {});
+      const needsCount = action === 'bots' || action === 'shows';
+      await api(`/api/admin/${action}`, needsCount ? { count: Number(btn.dataset.count) } : {});
+      if (action === 'shows') $('#you-showings').dataset.built = '';
       if (action === 'reset') {
         bidderId = null;
         sessionStorage.removeItem('bidderId');

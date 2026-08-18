@@ -155,6 +155,18 @@ test('bidders can update their showings mid-drop, and committedTotal tracks the 
   assert.equal(c.total, drop.prices.t2);
 });
 
+test('adding shows grows supply; fully-flexible bidders pick them up, restricted ones keep their set', () => {
+  const drop = makeDrop(); // showings S1, S2
+  const flexible = drop.addBidder({ name: 'f', showings: ['S1', 'S2'], tierMaxes: [{ tierId: 't2', maxPrice: 40 }] });
+  const picky = drop.addBidder({ name: 'p', showings: ['S1'], tierMaxes: [{ tierId: 't2', maxPrice: 40 }] });
+  const t2Before = drop.supply.t2;
+  drop.addShowings(2);
+  assert.equal(drop.showings.length, 4);
+  assert.equal(drop.supply.t2, t2Before * 2, 'supply doubles when show count doubles');
+  assert.equal(flexible.showings.length, 4);
+  assert.deepEqual(picky.showings, ['S1']);
+});
+
 test('crowd spans socioeconomic backgrounds, including bidders willing to pay hundreds', () => {
   const drop = makeDrop();
   addBots(drop, 2000, mulberry32(3));

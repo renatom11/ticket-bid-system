@@ -109,17 +109,20 @@
   }
   .pending-bar .row-actions { margin-top: 0; }
   .pending-bar[hidden] { display: none; }
-  .money-bar {
-    position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
-    display: flex; justify-content: center; gap: 2rem; flex-wrap: wrap;
-    background: var(--panel); border-top: 1px solid var(--line);
-    padding: 0.55rem 1rem; font-size: 0.85rem;
+  .ctl-line {
+    display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;
+    margin-top: 0.7rem; font-size: 0.88rem;
   }
-  .money-bar b { font-family: var(--mono); font-variant-numeric: tabular-nums; }
-  .money-bar .lift-up { color: var(--t1); }
-  .money-bar .lift-down { color: var(--t4); }
-  .money-bar .mlabel { color: var(--muted); }
-  body { padding-bottom: 3.2rem; }
+  .ctl-line .ctl-label { margin-right: 0.3rem; }
+  .ctl-line button { padding: 0.3rem 0.6rem; font-size: 0.78rem; }
+  .step {
+    padding: 0.15rem 0.4rem !important; font-size: 0.7rem !important;
+    font-family: var(--mono) !important; letter-spacing: 0 !important; text-transform: none !important;
+  }
+  .flat-stat { margin-top: 0.8rem; font-size: 0.92rem; }
+  .flat-stat b { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .flat-stat .lift-up { color: var(--t1); }
+  .flat-stat .lift-down { color: var(--t4); }
   .you-here {
     display: inline-block; margin-top: 0.35rem; padding: 0.1rem 0.5rem; border-radius: 999px;
     background: var(--ivory); color: #221e26;
@@ -219,7 +222,7 @@
 
   <div class="columns">
     <section class="panel">
-      <h2>Seat map <span class="hint">— five simultaneous showings of this room; zones are ours</span></h2>
+      <h2>Seat map <span class="hint">— <span id="seatmap-hint">5</span> simultaneous shows of this room; zones are ours</span></h2>
       <div class="seat-map"><div class="inner" id="seat-map"></div></div>
       <div id="map-legend" class="legend"></div>
     </section>
@@ -228,8 +231,8 @@
       <div id="join-panel">
         <h2>Join the drop</h2>
         <label>Your name <input type="text" id="join-name" placeholder="e.g. Renato"></label>
-        <fieldset id="join-showings"><legend>Showings you'd attend (any one of them)</legend></fieldset>
         <fieldset id="join-tiers"><legend>Tiers you'd take, with the most you'd pay. If a tier's price climbs past your max, you fall into the next tier you checked.</legend></fieldset>
+        <p class="hint">You join for every show; trim which ones you'd attend afterward in Your Bid.</p>
         <button id="join-btn" class="primary">Join drop</button>
         <p id="join-error" class="error"></p>
       </div>
@@ -237,16 +240,8 @@
       <div id="you-panel" hidden>
         <h2>Your bid</h2>
         <div id="you-status"></div>
-        <div id="bump-row">
-          <div class="row-actions">
-            <button data-bump="1">Up bid $1</button>
-            <button data-bump="10">Up bid $10</button>
-            <button data-bump="100">Up bid $100</button>
-          </div>
-          <p class="hint" id="bump-hint" style="margin:0.35rem 0 0"></p>
-        </div>
-        <fieldset id="you-showings"><legend>Showings — <span id="showing-count"></span></legend></fieldset>
-        <fieldset id="you-tiers"><legend>Your max per tier — raise them any time before settlement</legend></fieldset>
+        <fieldset id="you-showings"><legend>Shows — <span id="showing-count"></span></legend></fieldset>
+        <fieldset id="you-tiers"><legend>Your max per tier — adjust any time before settlement</legend></fieldset>
         <div class="row-actions">
           <button id="update-btn" class="primary">Update maxes</button>
           <button id="withdraw-btn" class="danger">Drop out</button>
@@ -255,16 +250,25 @@
       </div>
 
       <div class="controls">
-        <h2>Run the show <span class="hint">— a crowd of <span id="bot-count" class="mono">0</span> simulated bidders is already waiting</span></h2>
+        <h2>Run the show</h2>
         <div class="row-actions">
           <button id="start-btn" class="primary">Start the drop</button>
           <button data-ctl="tick">Force next tick</button>
+          <button data-ctl="reset" class="danger">Reset</button>
+        </div>
+        <div class="ctl-line">
+          <span class="ctl-label">Simulated bidders: <b id="bot-count" class="mono">0</b></span>
           <button data-ctl="bots" data-count="100">Add 100</button>
           <button data-ctl="bots" data-count="1000">Add 1,000</button>
           <button data-ctl="bots" data-count="10000">Add 10,000</button>
-          <button data-ctl="reset" class="danger">Reset</button>
+          <button data-ctl="bots" data-count="100000">Add 100,000</button>
         </div>
-        <p class="hint">Bidding ticks every 8 seconds. The crowd is drawn from five socioeconomic segments — students on a $16 budget up to superfans worth $300–700+ for prime seats — so you can watch prices spike, sag back, and settle. Join before or during bidding to play against them.</p>
+        <div class="ctl-line">
+          <span class="ctl-label">Shows: <b id="show-count" class="mono">5</b></span>
+          <button data-ctl="shows" data-count="1">Add 1</button>
+          <button data-ctl="shows" data-count="10">Add 10</button>
+        </div>
+        <p class="hint">Bidding ticks every 8 seconds. The crowd is drawn from five socioeconomic segments — students on a $16 budget up to superfans worth $300–700+ for prime seats. Adding shows grows the seat supply; adding bidders grows demand.</p>
       </div>
     </section>
   </div>
@@ -276,8 +280,6 @@
 </main>
 
 <footer>Everything runs in this page — no server, no accounts, nothing leaves your browser. Refresh to start over.</footer>
-
-<div id="money-bar" class="money-bar"></div>
 
 <script>
 /* ---------------- venue: Lincoln Square style room, our own zones ---------------- */
@@ -385,6 +387,24 @@ class Drop {
       if (t) d[t] += 1;
     }
     return d;
+  }
+  // Add more simultaneous shows mid-drop, growing every tier's supply.
+  // Bidders who accepted every show stay fully flexible; hand-picked
+  // subsets are kept as-is.
+  addShowings(count) {
+    if (this.phase === 'settled') return [];
+    const prevAll = this.showings.length;
+    const added = [];
+    for (let i = 0; i < count; i++) {
+      const name = 'Showing ' + (this.showings.length + 1);
+      this.showings.push(name);
+      added.push(name);
+    }
+    for (const b of this.bidders.values()) {
+      if (b.showings.length === prevAll) b.showings.push(...added);
+    }
+    for (const t of TIER_ORDER) this.supply[t] += VENUE.capacityPerShowing[t] * count;
+    return added;
   }
   // Money the platform would collect if the drop settled right now.
   committedTotal() {
@@ -597,8 +617,9 @@ function render() {
   renderSeatMap(you);
   renderYou(you);
   renderResults();
-  renderMoneyBar();
-  $('#bot-count').textContent = [...drop.bidders.values()].filter((b) => !b.withdrawn && b.id !== youId).length;
+  $('#bot-count').textContent = [...drop.bidders.values()].filter((b) => !b.withdrawn && b.id !== youId).length.toLocaleString();
+  $('#show-count').textContent = drop.showings.length;
+  $('#seatmap-hint').textContent = drop.showings.length;
   $('#start-btn').disabled = drop.phase !== 'lobby' || !!lobbyEndsAt;
 }
 
@@ -683,21 +704,12 @@ function renderPendingBar(you) {
   bar.hidden = false;
 }
 
-function renderMoneyBar() {
-  let total, count, label;
-  if (drop.phase === 'settled' && drop.results) {
-    total = drop.results.revenue; count = drop.results.winners; label = 'Total spent';
-  } else {
-    const c = drop.committedTotal();
-    total = c.total; count = c.bidders; label = 'Committed right now';
-  }
-  const flat = count * FLAT_PRICE;
-  const diff = total - flat;
-  $('#money-bar').innerHTML =
-    '<span><span class="mlabel">' + label + ':</span> <b>$' + total.toLocaleString() + '</b> <span class="mlabel">across ' + count.toLocaleString() + ' tickets</span></span>' +
-    '<span><span class="mlabel">Same tickets flat at $' + FLAT_PRICE + ':</span> <b>$' + flat.toLocaleString() + '</b></span>' +
-    '<span><span class="mlabel">Auction vs flat:</span> <b class="' + (diff >= 0 ? 'lift-up' : 'lift-down') + '">' +
-    (diff >= 0 ? '+' : '−') + '$' + Math.abs(diff).toLocaleString() + '</b></span>';
+function flatStatHtml(revenue, tickets) {
+  const flat = tickets * FLAT_PRICE;
+  const diff = revenue - flat;
+  return '<p class="flat-stat">Same ' + tickets.toLocaleString() + ' tickets at a flat $' + FLAT_PRICE + ' each would have made <b>$' +
+    flat.toLocaleString() + '</b> — the auction made <b class="' + (diff >= 0 ? 'lift-up' : 'lift-down') + '">' +
+    (diff >= 0 ? '+$' : '−$') + Math.abs(diff).toLocaleString() + '</b> vs flat pricing.</p>';
 }
 
 function deltaHtml(d) {
@@ -748,12 +760,6 @@ function renderLegend() {
 }
 
 function buildJoinForm() {
-  const sf = $('#join-showings');
-  sf.querySelectorAll('.check-row').forEach((n) => n.remove());
-  for (const s of drop.showings) {
-    sf.insertAdjacentHTML('beforeend',
-      '<label class="check-row"><input type="checkbox" name="showing" value="' + s + '" checked> ' + s + '</label>');
-  }
   const tf = $('#join-tiers');
   tf.querySelectorAll('.check-row').forEach((n) => n.remove());
   for (const t of TIERS) {
@@ -773,7 +779,7 @@ function readTierMaxes(prefix) {
 
 function join() {
   $('#join-error').textContent = '';
-  const showings = [...document.querySelectorAll('input[name="showing"]:checked')].map((i) => i.value);
+  const showings = [...drop.showings];
   try {
     if (drop.phase === 'settled') throw new Error('This drop already settled — press Reset to run another');
     const b = drop.addBidder({ name: $('#join-name').value, showings, tierMaxes: readTierMaxes('') });
@@ -794,7 +800,6 @@ function renderYou(you) {
   $('#you-showings').hidden = !editable;
   $('#update-btn').hidden = !editable;
   $('#withdraw-btn').hidden = !editable;
-  $('#bump-row').hidden = !editable;
   if (editable) {
     const sf = $('#you-showings');
     if (sf.dataset.built !== you.id) {
@@ -807,9 +812,6 @@ function renderYou(you) {
       }
     }
     $('#showing-count').textContent = 'you’re bidding on ' + you.showings.length + ' of ' + drop.showings.length;
-    const bumpTier = drop.targetTier(you) ?? you.tierMaxes[0].tierId;
-    const tm = you.tierMaxes.find((x) => x.tierId === bumpTier);
-    $('#bump-hint').textContent = 'Raises your ' + tierById(bumpTier).name + ' max (now $' + tm.maxPrice + ')';
   }
 
   if (you.withdrawn) {
@@ -843,7 +845,11 @@ function renderYou(you) {
         '<label class="check-row"><input type="checkbox" name="ytier" value="' + t.id + '"' + (tm ? ' checked' : '') + '>' +
         '<span class="tier-dot" style="background:var(--' + t.id + ')"></span>' +
         '<span class="grow">' + t.name + '</span>' +
-        'max $<input type="number" name="ymax-' + t.id + '" min="1" value="' + (tm ? tm.maxPrice : suggestedMax(t.id)) + '"></label>');
+        'max $<input type="number" name="ymax-' + t.id + '" min="1" value="' + (tm ? tm.maxPrice : suggestedMax(t.id)) + '">' +
+        ['-100', '-10', '-1', '+1', '+10', '+100'].map((s) =>
+          '<button type="button" class="step" data-step="' + s + '" data-tier="' + t.id + '">' + s + '</button>'
+        ).join('') +
+        '</label>');
     }
   }
 }
@@ -886,7 +892,8 @@ function renderResults() {
       ? '<h2 style="margin-top:1.1rem">Who got in, by segment</h2>' +
         '<p class="hint" style="margin:0 0 0.5rem">The crowd spans socioeconomic backgrounds — superfans here are willing to pay $300–700+ for prime seats, but under uniform pricing they pay the same settled price as the marginal winner.</p>' +
         '<table class="results"><tr><th>Segment</th><th>Seated</th><th>Avg paid</th></tr>' + segRows + '</table>'
-      : '');
+      : '') +
+    flatStatHtml(r.revenue, r.winners);
 }
 
 /* ---------------- wiring ---------------- */
@@ -917,21 +924,32 @@ $('#you-showings').addEventListener('change', () => {
   you.showings = drop.showings.filter((s) => sel.includes(s));
   render();
 });
-document.querySelectorAll('[data-bump]').forEach((btn) => btn.addEventListener('click', () => {
+$('#you-tiers').addEventListener('click', (e) => {
+  const btn = e.target.closest('button.step');
+  if (!btn) return;
+  e.preventDefault();
   const you = youId && drop.bidders.get(youId);
   if (!you || you.withdrawn || drop.phase === 'settled') return;
-  const tierId = drop.targetTier(you) ?? you.tierMaxes[0].tierId;
-  const tm = you.tierMaxes.find((x) => x.tierId === tierId);
-  tm.maxPrice += Number(btn.dataset.bump);
+  const tierId = btn.dataset.tier;
   const input = document.querySelector('input[name="ymax-' + tierId + '"]');
-  if (input) input.value = tm.maxPrice;
-  render();
-}));
+  input.value = Math.max(1, Number(input.value || 0) + Number(btn.dataset.step));
+  if (Number(btn.dataset.step) > 0) {
+    document.querySelector('input[name="ytier"][value="' + tierId + '"]').checked = true;
+  }
+  updateMaxes(); // apply immediately
+});
 $('#start-btn').addEventListener('click', startDrop);
 document.querySelectorAll('[data-ctl]').forEach((btn) => btn.addEventListener('click', () => {
   const a = btn.dataset.ctl;
   if (a === 'tick') { if (drop.phase === 'lobby') beginBidding(); doTick(); }
   if (a === 'bots') { if (drop.phase !== 'settled') { addBots(drop, Number(btn.dataset.count)); render(); } }
+  if (a === 'shows') {
+    if (drop.phase !== 'settled') {
+      drop.addShowings(Number(btn.dataset.count));
+      $('#you-showings').dataset.built = '';
+      render();
+    }
+  }
   if (a === 'reset') reset();
 }));
 

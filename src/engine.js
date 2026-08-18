@@ -81,6 +81,25 @@ export class Drop {
     return bidder;
   }
 
+  // Add more simultaneous shows mid-drop, growing every tier's supply.
+  // Bidders who accepted every show stay fully flexible and pick up the new
+  // ones; bidders with a hand-picked subset keep their subset.
+  addShowings(count) {
+    if (this.phase === 'settled') throw new UserError('Drop already settled');
+    const prevAll = this.showings.length;
+    const added = [];
+    for (let i = 0; i < count; i++) {
+      const name = `Showing ${this.showings.length + 1}`;
+      this.showings.push(name);
+      added.push(name);
+    }
+    for (const b of this.bidders.values()) {
+      if (b.showings.length === prevAll) b.showings.push(...added);
+    }
+    for (const t of TIER_ORDER) this.supply[t] += VENUE.capacityPerShowing[t] * count;
+    return added;
+  }
+
   // Money the platform would collect if the drop settled right now: every
   // pooled bidder pays their target tier's current price.
   committedTotal() {
