@@ -1,0 +1,14 @@
+{
+  "name": "ticket-bid-system",
+  "version": "0.1.0",
+  "description": "Prototype of a uniform-price clearing auction for ticket drops (5 showings x 4 seat tiers)",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "sim": "node sim/simulate.js",
+    "test": "node --test \"test/*.test.js\""
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

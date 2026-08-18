@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ticket Drop — Bid System Prototype</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header>
+    <div>
+      <h1 id="drop-name">Loading…</h1>
+      <p class="sub">Uniform-price clearing auction · everyone in a tier pays the same settled price</p>
+    </div>
+    <div class="status">
+      <span id="phase-pill" class="pill">…</span>
+      <span id="countdown" class="countdown"></span>
+    </div>
+  </header>
+
+  <main>
+    <section id="tier-board" class="tier-board"></section>
+
+    <div class="columns">
+      <section class="panel">
+        <h2>Seat map <span class="muted">— zones are ours, not AMC's</span></h2>
+        <div id="seat-map" class="seat-map"></div>
+        <div id="map-legend" class="legend"></div>
+      </section>
+
+      <section class="panel">
+        <div id="join-panel">
+          <h2>Join the drop</h2>
+          <label>Your name <input id="join-name" placeholder="e.g. Renato" /></label>
+          <fieldset id="join-showings">
+            <legend>Showings you'd attend (any one of them)</legend>
+          </fieldset>
+          <fieldset id="join-tiers">
+            <legend>Tiers you'd take, with the most you'd pay. If a tier's price climbs past your max, you fall into the next tier you checked.</legend>
+          </fieldset>
+          <button id="join-btn" class="primary">Join drop</button>
+          <p id="join-error" class="error"></p>
+        </div>
+
+        <div id="you-panel" hidden>
+          <h2>Your bid</h2>
+          <div id="you-status"></div>
+          <fieldset id="you-tiers">
+            <legend>Your max per tier (raise them any time before settlement)</legend>
+          </fieldset>
+          <div class="row-actions">
+            <button id="update-btn" class="primary">Update maxes</button>
+            <button id="withdraw-btn" class="danger">Drop out</button>
+          </div>
+          <p id="you-error" class="error"></p>
+        </div>
+
+        <details class="admin">
+          <summary>Demo controls</summary>
+          <div class="row-actions">
+            <button data-admin="open">Open drop (lobby countdown)</button>
+            <button data-admin="start-bidding">Skip lobby → start bidding</button>
+            <button data-admin="tick">Force next price tick</button>
+            <button data-admin="bots">Add 300 bots</button>
+            <button data-admin="reset" class="danger">Reset drop</button>
+          </div>
+          <p class="muted">Bots have randomized tastes and budgets so you can watch prices spike, sag, and settle.</p>
+        </details>
+      </section>
+    </div>
+
+    <section id="results-panel" class="panel" hidden>
+      <h2>Settled ✅</h2>
+      <div id="results"></div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>
