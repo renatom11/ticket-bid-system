@@ -73,6 +73,10 @@ const secs = (t) => Math.max(0, Math.ceil((t - Date.now()) / 1000));
 function renderTierBoard() {
   const board = $('#tier-board');
   board.innerHTML = '';
+  const you = state.you;
+  const editable = you && !you.withdrawn && state.phase !== 'settled';
+  const targetId = editable ? you.targetTier : you && you.assignment ? you.assignment.tierId : null;
+  const targetIdx = targetId ? tiers.findIndex((t) => t.id === targetId) : -1;
   for (const tier of tiers) {
     const price = state.prices[tier.id];
     const hist = state.priceHistory[tier.id] || [price];
@@ -81,17 +85,45 @@ function renderTierBoard() {
     const s = state.supply[tier.id];
     const ratio = Math.min(1, d / s);
     const over = d > s;
-    const youHere = state.you && !state.you.withdrawn && state.you.targetTier === tier.id;
+    const isCurrent = tier.id === targetId;
+    const clickable = editable && !isCurrent;
+    let footer = '';
+    if (isCurrent) {
+      footer = `<div class="you-here">✓ ${state.phase === 'settled' ? 'your tier' : "you're getting this tier"}</div>`;
+    } else if (clickable) {
+      const idx = tiers.findIndex((t) => t.id === tier.id);
+      const verb = targetIdx === -1 ? 'jump in' : idx < targetIdx ? 'move up' : 'drop down';
+      footer = `<div class="switch-hint">Click to ${verb} — sets your bid to $${price}</div>`;
+    }
     const card = document.createElement('div');
-    card.className = `tier-card ${tier.id}`;
+    card.className = `tier-card ${tier.id}${isCurrent ? ' current' : ''}${clickable ? ' clickable' : ''}`;
+    card.dataset.tier = tier.id;
     card.innerHTML = `
       <div>${tier.name}</div>
       <div><span class="price">$${price}</span>${deltaHtml(price - prev)}</div>
       <div class="meta">${d} bidding · ${s} seats${over ? ' · OVERSUBSCRIBED' : ''}</div>
       <div class="demand-bar"><div class="${over ? 'over' : ''}" style="width:${ratio * 100}%"></div></div>
       ${sparkline(hist)}
-      ${youHere ? '<div class="you-here">● you are pooled here</div>' : ''}`;
+      ${footer}`;
     board.appendChild(card);
+  }
+}
+
+// Clicking a tier card = "put me in this pool at its current price": the
+// clicked tier's max becomes exactly its clock price, better tiers are
+// released, and worse tiers stay as fallbacks.
+async function switchToTier(tierId) {
+  const you = state?.you;
+  if (!you || you.withdrawn || state.phase === 'settled') return;
+  const idx = tiers.findIndex((t) => t.id === tierId);
+  const fallbacks = you.tierMaxes.filter((tm) => tiers.findIndex((t) => t.id === tm.tierId) > idx);
+  const tierMaxes = [{ tierId, maxPrice: state.prices[tierId] }, ...fallbacks];
+  try {
+    await api('/api/update', { bidderId, tierMaxes });
+    $('#you-tiers').dataset.built = '';
+    await refresh();
+  } catch (e) {
+    $('#you-error').textContent = e.message;
   }
 }
 
@@ -334,6 +366,10 @@ function segmentTable(bySegment) {
 
 function wireButtons() {
   $('#join-btn').addEventListener('click', join);
+  $('#tier-board').addEventListener('click', (e) => {
+    const card = e.target.closest('.tier-card.clickable');
+    if (card) switchToTier(card.dataset.tier);
+  });
   document.querySelectorAll('[data-bump]').forEach((btn) => {
     btn.addEventListener('click', async () => {
       const you = state?.you;

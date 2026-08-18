@@ -98,7 +98,16 @@
   .spark { margin-top: 0.4rem; width: 100%; height: 34px; display: block; }
   .spark polyline { fill: none; stroke: var(--muted); stroke-width: 1.8; }
   .spark circle { fill: var(--ivory); }
-  .you-here { font-size: 0.75rem; color: var(--ivory); margin-top: 0.3rem; }
+  .tier-card.clickable { cursor: pointer; }
+  .tier-card.clickable:hover { outline: 1px solid var(--muted); outline-offset: 1px; }
+  .tier-card.current { outline: 2px solid var(--ivory); outline-offset: 1px; }
+  .you-here {
+    display: inline-block; margin-top: 0.35rem; padding: 0.1rem 0.5rem; border-radius: 999px;
+    background: var(--ivory); color: #221e26;
+    font-family: var(--display); font-weight: 700; font-size: 0.8rem;
+    letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .switch-hint { font-size: 0.72rem; color: var(--muted); margin-top: 0.35rem; }
 
   .columns { display: grid; grid-template-columns: 1.2fr 1fr; gap: 1rem; align-items: start; }
   @media (max-width: 900px) { .columns { grid-template-columns: 1fr; } }
@@ -566,6 +575,9 @@ function renderHeader() {
 function renderTierBoard(you) {
   const board = $('#tier-board');
   board.innerHTML = '';
+  const editable = you && !you.withdrawn && drop.phase !== 'settled';
+  const targetId = editable ? drop.targetTier(you) : you && you.assignment ? you.assignment.tierId : null;
+  const targetIdx = targetId ? TIER_ORDER.indexOf(targetId) : -1;
   for (const tier of TIERS) {
     const price = drop.prices[tier.id];
     const hist = drop.priceHistory[tier.id];
@@ -573,18 +585,41 @@ function renderTierBoard(you) {
     const d = drop.phase === 'lobby' ? drop.computeDemand()[tier.id] : drop.lastDemand[tier.id];
     const s = drop.supply[tier.id];
     const over = d > s;
-    const youHere = you && !you.withdrawn && drop.targetTier(you) === tier.id;
+    const isCurrent = tier.id === targetId;
+    const clickable = editable && !isCurrent;
+    let footer = '';
+    if (isCurrent) {
+      footer = '<div class="you-here">✓ ' + (drop.phase === 'settled' ? 'your tier' : 'you’re getting this tier') + '</div>';
+    } else if (clickable) {
+      const idx = TIER_ORDER.indexOf(tier.id);
+      const verb = targetIdx === -1 ? 'jump in' : idx < targetIdx ? 'move up' : 'drop down';
+      footer = '<div class="switch-hint">Click to ' + verb + ' — sets your bid to $' + price + '</div>';
+    }
     const card = document.createElement('div');
-    card.className = 'tier-card ' + tier.id;
+    card.className = 'tier-card ' + tier.id + (isCurrent ? ' current' : '') + (clickable ? ' clickable' : '');
+    card.dataset.tier = tier.id;
     card.innerHTML =
       '<div class="tname">' + tier.name + '</div>' +
       '<div><span class="price' + (price !== prev ? ' price-flash' : '') + '">$' + price + '</span>' + deltaHtml(price - prev) + '</div>' +
       '<div class="meta">' + d + ' bidding · ' + s + ' seats' + (over ? ' · OVERSUBSCRIBED' : '') + '</div>' +
       '<div class="demand-bar"><div class="' + (over ? 'over' : '') + '" style="width:' + Math.min(1, d / s) * 100 + '%"></div></div>' +
       sparkline(hist) +
-      (youHere ? '<div class="you-here">● you are pooled here</div>' : '');
+      footer;
     board.appendChild(card);
   }
+}
+
+// Clicking a tier card = "put me in this pool at its current price": the
+// clicked tier's max becomes exactly its clock price, better tiers are
+// released, and worse tiers stay as fallbacks.
+function switchToTier(tierId) {
+  const you = youId && drop.bidders.get(youId);
+  if (!you || you.withdrawn || drop.phase === 'settled') return;
+  const idx = TIER_ORDER.indexOf(tierId);
+  const fallbacks = you.tierMaxes.filter((tm) => TIER_ORDER.indexOf(tm.tierId) > idx);
+  you.tierMaxes = [{ tierId, maxPrice: drop.prices[tierId] }, ...fallbacks];
+  $('#you-tiers').dataset.built = '';
+  render();
 }
 
 function deltaHtml(d) {
@@ -771,6 +806,10 @@ $('#update-btn').addEventListener('click', updateMaxes);
 $('#withdraw-btn').addEventListener('click', () => {
   const you = drop.bidders.get(youId);
   if (you && drop.phase !== 'settled') { you.withdrawn = true; render(); }
+});
+$('#tier-board').addEventListener('click', (e) => {
+  const card = e.target.closest('.tier-card.clickable');
+  if (card) switchToTier(card.dataset.tier);
 });
 document.querySelectorAll('[data-bump]').forEach((btn) => btn.addEventListener('click', () => {
   const you = youId && drop.bidders.get(youId);
