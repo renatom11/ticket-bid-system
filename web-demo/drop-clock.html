@@ -1,0 +1,710 @@
+<title>Drop Clock</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Public+Sans:wght@400;600&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<style>
+  :root {
+    --bg: #17141a;
+    --panel: #201d24;
+    --panel-2: #2a262f;
+    --line: #383340;
+    --text: #efe9e4;
+    --muted: #9d95a3;
+    --ivory: #f5efe6;
+    --t1: #44c076;
+    --t2: #4da3e0;
+    --t3: #e0b23a;
+    --t4: #e05a4e;
+    --display: "Barlow Condensed", "Arial Narrow", sans-serif;
+    --body: "Public Sans", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--body);
+    font-size: 15px;
+    line-height: 1.5;
+  }
+  header {
+    display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; flex-wrap: wrap;
+    padding: 1.1rem 1.4rem 0.9rem;
+    border-bottom: 1px solid var(--line);
+  }
+  h1 {
+    margin: 0;
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 2rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  h1 .dim { color: var(--muted); }
+  .sub { margin: 0.1rem 0 0; color: var(--muted); font-size: 0.85rem; max-width: 60ch; }
+  h2 {
+    margin: 0 0 0.6rem;
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 1.25rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .status { display: flex; align-items: center; gap: 0.7rem; }
+  .pill {
+    font-family: var(--display); font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase;
+    font-size: 0.85rem; padding: 0.2rem 0.75rem; border-radius: 999px; background: var(--panel-2);
+  }
+  .pill.bidding { background: #24391f; color: #9ade7a; }
+  .pill.lobby { background: #1f3140; color: #7ac0e0; }
+  .pill.settled { background: #3a301c; color: #e0c47a; }
+  .countdown { font-family: var(--mono); font-size: 0.85rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  main { max-width: 1160px; margin: 0 auto; padding: 1.1rem 1.4rem 3.5rem; }
+
+  .tier-board {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));
+    gap: 0.8rem; margin-bottom: 1rem;
+  }
+  .tier-card {
+    background: var(--panel); border-radius: 10px; padding: 0.75rem 0.9rem;
+    border-top: 3px solid var(--muted);
+  }
+  .tier-card.t1 { border-color: var(--t1); }
+  .tier-card.t2 { border-color: var(--t2); }
+  .tier-card.t3 { border-color: var(--t3); }
+  .tier-card.t4 { border-color: var(--t4); }
+  .tier-card .tname { font-family: var(--display); font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; font-size: 1rem; }
+  .tier-card .price { font-family: var(--mono); font-weight: 600; font-size: 1.8rem; font-variant-numeric: tabular-nums; }
+  .price-flash { animation: flash 0.9s ease-out; }
+  @keyframes flash { 0% { color: var(--ivory); } 100% { color: inherit; } }
+  @media (prefers-reduced-motion: reduce) { .price-flash { animation: none; } }
+  .delta { font-family: var(--mono); font-size: 0.85rem; margin-left: 0.3rem; }
+  .delta.up { color: var(--t4); }
+  .delta.down { color: var(--t1); }
+  .meta { color: var(--muted); font-size: 0.78rem; margin-top: 0.15rem; font-variant-numeric: tabular-nums; }
+  .demand-bar { height: 6px; border-radius: 3px; background: var(--panel-2); margin-top: 0.5rem; overflow: hidden; }
+  .demand-bar > div { height: 100%; border-radius: 3px; background: var(--t2); }
+  .demand-bar > div.over { background: var(--t4); }
+  .spark { margin-top: 0.4rem; width: 100%; height: 34px; display: block; }
+  .spark polyline { fill: none; stroke: var(--muted); stroke-width: 1.8; }
+  .spark circle { fill: var(--ivory); }
+  .you-here { font-size: 0.75rem; color: var(--ivory); margin-top: 0.3rem; }
+
+  .columns { display: grid; grid-template-columns: 1.2fr 1fr; gap: 1rem; align-items: start; }
+  @media (max-width: 900px) { .columns { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border-radius: 10px; padding: 1rem 1.1rem; margin-bottom: 1rem; }
+  .hint { color: var(--muted); font-weight: 400; font-size: 0.78rem; text-transform: none; letter-spacing: 0; font-family: var(--body); }
+
+  .seat-map { overflow-x: auto; }
+  .seat-map .inner { min-width: 560px; }
+  .seat-map .screen {
+    background: linear-gradient(180deg, #6a6570, #4a4650); color: #ddd8e0; text-align: center; border-radius: 6px;
+    font-family: var(--display); font-size: 0.7rem; letter-spacing: 0.5em; padding: 2px 0 2px 0.5em; margin-bottom: 10px;
+  }
+  .seat-row { display: flex; align-items: center; gap: 2px; margin-bottom: 2px; justify-content: center; }
+  .seat-row .rl { width: 15px; font-family: var(--mono); font-size: 0.6rem; color: var(--muted); text-align: center; }
+  .seat { width: 11px; height: 11px; border-radius: 2.5px; flex: none; opacity: 0.85; }
+  .seat.t1 { background: var(--t1); }
+  .seat.t2 { background: var(--t2); }
+  .seat.t3 { background: var(--t3); }
+  .seat.t4 { background: var(--t4); }
+  .seat.mine { outline: 2px solid var(--ivory); opacity: 1; transform: scale(1.45); }
+  .aisle-gap { height: 11px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; margin-top: 0.7rem; font-size: 0.78rem; color: var(--muted); }
+  .legend .chip { width: 10px; height: 10px; border-radius: 2px; display: inline-block; margin-right: 5px; }
+
+  label { display: block; margin: 0.5rem 0; font-size: 0.88rem; }
+  input[type="text"], input[type="number"] {
+    width: 100%; padding: 0.45rem 0.6rem; margin-top: 0.25rem;
+    background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 6px;
+    font-family: var(--mono); font-size: 0.85rem;
+  }
+  input:focus-visible, button:focus-visible { outline: 2px solid var(--t2); outline-offset: 1px; }
+  fieldset { border: 1px solid var(--line); border-radius: 8px; margin: 0.7rem 0; padding: 0.5rem 0.8rem 0.7rem; }
+  legend { font-size: 0.76rem; color: var(--muted); padding: 0 0.3rem; }
+  .check-row { display: flex; align-items: center; gap: 0.5rem; margin: 0.35rem 0; font-size: 0.86rem; }
+  .check-row input[type="number"] { width: 84px; margin: 0; }
+  .check-row .tier-dot { width: 9px; height: 9px; border-radius: 2px; flex: none; }
+  .check-row .grow { flex: 1; }
+
+  button {
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+    padding: 0.5rem 0.95rem; border-radius: 7px; cursor: pointer;
+    font-family: var(--display); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; font-size: 0.9rem;
+  }
+  button:hover { border-color: var(--muted); }
+  button.primary { background: var(--ivory); border-color: var(--ivory); color: #221e26; }
+  button.danger { border-color: var(--t4); color: var(--t4); }
+  .row-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.6rem; }
+  .error { color: var(--t4); font-size: 0.85rem; min-height: 1.2em; margin: 0.4rem 0 0; }
+
+  .you-status-card {
+    background: var(--panel-2); border-radius: 8px; padding: 0.7rem 0.9rem; margin-bottom: 0.6rem;
+    font-size: 0.9rem; line-height: 1.5;
+  }
+  .big { font-family: var(--display); font-size: 1.3rem; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; }
+  .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  table.results { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+  table.results th, table.results td { text-align: left; padding: 0.35rem 0.6rem; border-bottom: 1px solid var(--line); }
+  table.results th { color: var(--muted); font-weight: 600; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; }
+  table.results td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  .controls { border-top: 1px dashed var(--line); margin-top: 1rem; padding-top: 0.8rem; }
+  .controls p { margin: 0.5rem 0 0; }
+  footer { text-align: center; color: var(--muted); font-size: 0.78rem; padding: 0 1.4rem 2rem; }
+  footer a { color: var(--muted); }
+</style>
+
+<header>
+  <div>
+    <h1>Drop Clock <span class="dim">· Odyssey — Opening Night</span></h1>
+    <p class="sub">A ticket drop as a uniform-price clearing auction: prices tick publicly, priced-out bidders cascade to the next tier, and everyone who stays in is guaranteed a seat at the same settled price.</p>
+  </div>
+  <div class="status">
+    <span id="phase-pill" class="pill">not open</span>
+    <span id="countdown" class="countdown"></span>
+  </div>
+</header>
+
+<main>
+  <section id="tier-board" class="tier-board" aria-live="off"></section>
+
+  <div class="columns">
+    <section class="panel">
+      <h2>Seat map <span class="hint">— five simultaneous showings of this room; zones are ours</span></h2>
+      <div class="seat-map"><div class="inner" id="seat-map"></div></div>
+      <div id="map-legend" class="legend"></div>
+    </section>
+
+    <section class="panel">
+      <div id="join-panel">
+        <h2>Join the drop</h2>
+        <label>Your name <input type="text" id="join-name" placeholder="e.g. Renato"></label>
+        <fieldset id="join-showings"><legend>Showings you'd attend (any one of them)</legend></fieldset>
+        <fieldset id="join-tiers"><legend>Tiers you'd take, with the most you'd pay. If a tier's price climbs past your max, you fall into the next tier you checked.</legend></fieldset>
+        <button id="join-btn" class="primary">Join drop</button>
+        <p id="join-error" class="error"></p>
+      </div>
+
+      <div id="you-panel" hidden>
+        <h2>Your bid</h2>
+        <div id="you-status"></div>
+        <fieldset id="you-tiers"><legend>Your max per tier — raise them any time before settlement</legend></fieldset>
+        <div class="row-actions">
+          <button id="update-btn" class="primary">Update maxes</button>
+          <button id="withdraw-btn" class="danger">Drop out</button>
+        </div>
+        <p id="you-error" class="error"></p>
+      </div>
+
+      <div class="controls">
+        <h2>Run the show <span class="hint">— a crowd of <span id="bot-count" class="mono">0</span> simulated bidders is already waiting</span></h2>
+        <div class="row-actions">
+          <button id="start-btn" class="primary">Start the drop</button>
+          <button data-ctl="tick">Force next tick</button>
+          <button data-ctl="bots">Add 300 bidders</button>
+          <button data-ctl="reset" class="danger">Reset</button>
+        </div>
+        <p class="hint">Bidding ticks every 8 seconds. Simulated bidders have randomized tastes and budgets, so you can watch prices spike, sag back, and settle — join before or during bidding to play against them.</p>
+      </div>
+    </section>
+  </div>
+
+  <section id="results-panel" class="panel" hidden>
+    <h2>Settled</h2>
+    <div id="results"></div>
+  </section>
+</main>
+
+<footer>Everything runs in this page — no server, no accounts, nothing leaves your browser. Refresh to start over.</footer>
+
+<script>
+/* ---------------- venue: Lincoln Square style room, our own zones ---------------- */
+
+const TIERS = [
+  { id: 't1', name: 'Tier 1 · Prime Center', floorPrice: 30 },
+  { id: 't2', name: 'Tier 2 · Great', floorPrice: 25 },
+  { id: 't3', name: 'Tier 3 · Okay', floorPrice: 20 },
+  { id: 't4', name: 'Tier 4 · Front', floorPrice: 15 },
+];
+const TIER_ORDER = TIERS.map((t) => t.id);
+const tierById = (id) => TIERS.find((t) => t.id === id);
+
+const sideRule = (w, side, center) => (i, n) => (i < w || i >= n - w ? side : center);
+const ROW_DEFS = [
+  ['A', 28, () => 't4'], ['B', 32, () => 't4'], ['C', 36, () => 't4'], ['D', 38, () => 't4'],
+  ['E', 38, sideRule(5, 't4', 't3')], ['F', 38, sideRule(5, 't4', 't3')],
+  ['G', 38, sideRule(8, 't2', 't1')], ['H', 38, sideRule(8, 't2', 't1')],
+  ['J', 38, sideRule(8, 't2', 't1')], ['K', 38, sideRule(8, 't2', 't1')],
+  ['L', 38, sideRule(10, 't3', 't2')], ['M', 36, sideRule(10, 't3', 't2')],
+];
+const VENUE = (() => {
+  const rows = ROW_DEFS.map(([label, n, rule]) => ({
+    label,
+    seats: Array.from({ length: n }, (_, i) => rule(i, n)),
+  }));
+  const capacityPerShowing = Object.fromEntries(TIER_ORDER.map((t) => [t, 0]));
+  for (const row of rows) for (const tier of row.seats) capacityPerShowing[tier] += 1;
+  return { rows, capacityPerShowing };
+})();
+
+const TIER_ROW_PREF = {
+  t1: ['H', 'J', 'G', 'K'],
+  t2: ['J', 'K', 'G', 'H', 'L', 'M'],
+  t3: ['F', 'E', 'L', 'M'],
+  t4: ['D', 'C', 'E', 'F', 'B', 'A'],
+};
+function seatsForTier(tierId) {
+  const seats = [];
+  for (const rowLabel of TIER_ROW_PREF[tierId]) {
+    const row = VENUE.rows.find((r) => r.label === rowLabel);
+    const mid = (row.seats.length - 1) / 2;
+    row.seats
+      .map((t, i) => (t === tierId ? i : -1))
+      .filter((i) => i >= 0)
+      .sort((a, b) => Math.abs(a - mid) - Math.abs(b - mid))
+      .forEach((i) => seats.push({ row: rowLabel, seat: i + 1 }));
+  }
+  return seats;
+}
+
+/* ---------------- auction engine ---------------- */
+
+const PRICE_K = 0.6, MAX_EXCESS_RATIO = 4, STABLE_ROUNDS_TO_SETTLE = 2;
+
+class Drop {
+  constructor({ showings, maxRounds = 25 } = {}) {
+    this.showings = showings ?? ['Showing 1', 'Showing 2', 'Showing 3', 'Showing 4', 'Showing 5'];
+    this.maxRounds = maxRounds;
+    this.phase = 'lobby';
+    this.round = 0;
+    this.stableRounds = 0;
+    this.bidders = new Map();
+    this.nextBidderId = 1;
+    this.prices = Object.fromEntries(TIERS.map((t) => [t.id, t.floorPrice]));
+    this.floors = { ...this.prices };
+    this.priceHistory = Object.fromEntries(TIER_ORDER.map((t) => [t, [this.prices[t]]]));
+    this.lastDemand = Object.fromEntries(TIER_ORDER.map((t) => [t, 0]));
+    this.supply = Object.fromEntries(
+      TIER_ORDER.map((t) => [t, VENUE.capacityPerShowing[t] * this.showings.length])
+    );
+    this.results = null;
+  }
+  addBidder({ name, showings, tierMaxes }) {
+    const accepted = (showings ?? []).filter((s) => this.showings.includes(s));
+    if (accepted.length === 0) throw new Error('Pick at least one showing');
+    const cleaned = (tierMaxes ?? [])
+      .filter((tm) => TIER_ORDER.includes(tm.tierId) && Number(tm.maxPrice) > 0)
+      .map((tm) => ({ tierId: tm.tierId, maxPrice: Math.floor(Number(tm.maxPrice)) }));
+    if (cleaned.length === 0) throw new Error('Pick at least one tier with a max price');
+    const bidder = {
+      id: 'b' + this.nextBidderId++,
+      name: (name || '').trim() || 'Bidder',
+      showings: accepted,
+      tierMaxes: cleaned,
+      joinedAt: this.bidders.size,
+      withdrawn: false,
+      assignment: null,
+    };
+    this.bidders.set(bidder.id, bidder);
+    return bidder;
+  }
+  targetTier(b) {
+    if (b.withdrawn) return null;
+    for (const { tierId, maxPrice } of b.tierMaxes) {
+      if (this.prices[tierId] <= maxPrice) return tierId;
+    }
+    return null;
+  }
+  computeDemand() {
+    const d = Object.fromEntries(TIER_ORDER.map((t) => [t, 0]));
+    for (const b of this.bidders.values()) {
+      const t = this.targetTier(b);
+      if (t) d[t] += 1;
+    }
+    return d;
+  }
+  openBidding() {
+    if (this.phase !== 'lobby') return;
+    this.phase = 'bidding';
+    this.lastDemand = this.computeDemand();
+  }
+  tick() {
+    if (this.phase === 'lobby') this.openBidding();
+    if (this.phase !== 'bidding') return;
+    this.round += 1;
+    const demand = this.computeDemand();
+    const k = PRICE_K / (1 + this.round / 5);
+    let anyMove = false;
+    for (const t of TIER_ORDER) {
+      const D = demand[t], S = this.supply[t], P = this.prices[t], F = this.floors[t];
+      let next = P;
+      if (D > S) {
+        const excess = Math.min((D - S) / S, MAX_EXCESS_RATIO);
+        next = Math.max(P + 1, Math.ceil(P * (1 + k * excess)));
+      } else if (D < S && P > F) {
+        next = Math.max(F, Math.round(P - k * (P - F) * ((S - D) / S)));
+      }
+      if (next !== P) anyMove = true;
+      this.prices[t] = next;
+      this.priceHistory[t].push(next);
+    }
+    this.lastDemand = demand;
+    const cleared = TIER_ORDER.every((t) => demand[t] <= this.supply[t]);
+    this.stableRounds = !anyMove && cleared ? this.stableRounds + 1 : 0;
+    if (this.stableRounds >= STABLE_ROUNDS_TO_SETTLE || this.round >= this.maxRounds) this.settle();
+  }
+  settle() {
+    const seatPools = new Map();
+    for (const t of TIER_ORDER) {
+      const per = new Map();
+      for (const s of this.showings) per.set(s, seatsForTier(t).slice());
+      seatPools.set(t, per);
+    }
+    const pools = Object.fromEntries(TIER_ORDER.map((t) => [t, []]));
+    for (const b of this.bidders.values()) {
+      const t = this.targetTier(b);
+      if (t) pools[t].push(b);
+    }
+    const takeSeat = (b, tierId) => {
+      const per = seatPools.get(tierId);
+      let best = null;
+      for (const s of b.showings) {
+        const seats = per.get(s);
+        if (seats.length > 0 && (!best || seats.length > per.get(best).length)) best = s;
+      }
+      if (!best) return false;
+      b.assignment = { tierId, showing: best, seat: per.get(best).shift(), pricePaid: this.prices[tierId] };
+      return true;
+    };
+    for (const t of TIER_ORDER) {
+      const queue = pools[t].sort(
+        (a, b) => a.showings.length - b.showings.length || a.joinedAt - b.joinedAt
+      );
+      for (const b of queue) {
+        if (takeSeat(b, t)) continue;
+        const rest = b.tierMaxes.slice(b.tierMaxes.findIndex((tm) => tm.tierId === t) + 1);
+        let placed = false;
+        for (const { tierId, maxPrice } of rest) {
+          if (this.prices[tierId] <= maxPrice && takeSeat(b, tierId)) { placed = true; break; }
+        }
+        if (!placed) b.assignment = null;
+      }
+    }
+    this.phase = 'settled';
+    const winners = [...this.bidders.values()].filter((b) => b.assignment);
+    this.results = {
+      rounds: this.round,
+      winners: winners.length,
+      participants: [...this.bidders.values()].filter((b) => !b.withdrawn).length,
+      revenue: winners.reduce((s, b) => s + b.assignment.pricePaid, 0),
+      byTier: Object.fromEntries(TIER_ORDER.map((t) => [t, {
+        finalPrice: this.prices[t],
+        sold: winners.filter((b) => b.assignment.tierId === t).length,
+        supply: this.supply[t],
+      }])),
+    };
+  }
+}
+
+/* ---------------- simulated crowd ---------------- */
+
+const TOP_TIER_MEANS = { t1: 95, t2: 60, t3: 38, t4: 22 };
+const TOP_TIER_WEIGHTS = [['t1', 0.45], ['t2', 0.3], ['t3', 0.17], ['t4', 0.08]];
+
+function addBots(drop, count) {
+  const rng = Math.random;
+  for (let i = 0; i < count; i++) {
+    let r = rng(), topTier = 't4';
+    for (const [v, w] of TOP_TIER_WEIGHTS) { r -= w; if (r <= 0) { topTier = v; break; } }
+    const startIdx = TIER_ORDER.indexOf(topTier);
+    const depth = 1 + Math.floor(rng() * (TIER_ORDER.length - startIdx));
+    const n = (rng() + rng() + rng() - 1.5) / 1.5;
+    const budget = Math.max(5, Math.round(TOP_TIER_MEANS[topTier] * Math.exp(n * 0.6)));
+    const tierMaxes = [];
+    for (let d = 0; d < depth; d++) {
+      tierMaxes.push({ tierId: TIER_ORDER[startIdx + d], maxPrice: Math.max(5, Math.round(budget * 0.75 ** d)) });
+    }
+    let showings = [...drop.showings];
+    if (rng() >= 0.6) {
+      showings = showings.sort(() => rng() - 0.5).slice(0, 1 + Math.floor(rng() * showings.length));
+    }
+    drop.addBidder({ name: 'Bot', showings, tierMaxes });
+  }
+}
+
+/* ---------------- app state + game loop ---------------- */
+
+const LOBBY_SECONDS = 15, ROUND_SECONDS = 8, SEED_BOTS = 2200;
+let drop, youId, lobbyEndsAt, nextTickAt, timer, prevPrices;
+
+const $ = (s) => document.querySelector(s);
+const secs = (t) => Math.max(0, Math.ceil((t - Date.now()) / 1000));
+const suggestedMax = (id) => ({ t1: 80, t2: 55, t3: 35, t4: 20 })[id] ?? 30;
+
+function reset() {
+  clearTimeout(timer);
+  timer = null; lobbyEndsAt = null; nextTickAt = null; youId = null;
+  drop = new Drop({});
+  prevPrices = { ...drop.prices };
+  addBots(drop, SEED_BOTS);
+  buildJoinForm();
+  $('#you-panel').hidden = true;
+  $('#join-panel').hidden = false;
+  $('#you-tiers').dataset.built = '';
+  render();
+}
+
+function startDrop() {
+  if (drop.phase !== 'lobby' || lobbyEndsAt) return;
+  lobbyEndsAt = Date.now() + LOBBY_SECONDS * 1000;
+  timer = setTimeout(beginBidding, LOBBY_SECONDS * 1000);
+  render();
+}
+function beginBidding() {
+  clearTimeout(timer);
+  lobbyEndsAt = null;
+  drop.openBidding();
+  scheduleTick();
+  render();
+}
+function scheduleTick() {
+  if (drop.phase !== 'bidding') { nextTickAt = null; return; }
+  nextTickAt = Date.now() + ROUND_SECONDS * 1000;
+  timer = setTimeout(doTick, ROUND_SECONDS * 1000);
+}
+function doTick() {
+  clearTimeout(timer);
+  prevPrices = { ...drop.prices };
+  drop.tick();
+  scheduleTick();
+  render();
+}
+
+/* ---------------- rendering ---------------- */
+
+function render() {
+  const you = youId ? drop.bidders.get(youId) : null;
+  renderHeader();
+  renderTierBoard(you);
+  renderSeatMap(you);
+  renderYou(you);
+  renderResults();
+  $('#bot-count').textContent = [...drop.bidders.values()].filter((b) => !b.withdrawn && b.id !== youId).length;
+  $('#start-btn').disabled = drop.phase !== 'lobby' || !!lobbyEndsAt;
+}
+
+function renderHeader() {
+  const pill = $('#phase-pill');
+  pill.textContent = drop.phase === 'lobby' && !lobbyEndsAt ? 'not open' : drop.phase;
+  pill.className = 'pill ' + drop.phase;
+  const cd = $('#countdown');
+  if (drop.phase === 'lobby' && lobbyEndsAt) cd.textContent = 'Bidding starts in ' + secs(lobbyEndsAt) + 's — get your filters in';
+  else if (drop.phase === 'bidding' && nextTickAt) cd.textContent = 'Round ' + drop.round + ' · next tick in ' + secs(nextTickAt) + 's';
+  else if (drop.phase === 'settled') cd.textContent = 'Settled after ' + drop.round + ' rounds';
+  else cd.textContent = 'Press “Start the drop”';
+}
+
+function renderTierBoard(you) {
+  const board = $('#tier-board');
+  board.innerHTML = '';
+  for (const tier of TIERS) {
+    const price = drop.prices[tier.id];
+    const hist = drop.priceHistory[tier.id];
+    const prev = prevPrices[tier.id] ?? price;
+    const d = drop.phase === 'lobby' ? drop.computeDemand()[tier.id] : drop.lastDemand[tier.id];
+    const s = drop.supply[tier.id];
+    const over = d > s;
+    const youHere = you && !you.withdrawn && drop.targetTier(you) === tier.id;
+    const card = document.createElement('div');
+    card.className = 'tier-card ' + tier.id;
+    card.innerHTML =
+      '<div class="tname">' + tier.name + '</div>' +
+      '<div><span class="price' + (price !== prev ? ' price-flash' : '') + '">$' + price + '</span>' + deltaHtml(price - prev) + '</div>' +
+      '<div class="meta">' + d + ' bidding · ' + s + ' seats' + (over ? ' · OVERSUBSCRIBED' : '') + '</div>' +
+      '<div class="demand-bar"><div class="' + (over ? 'over' : '') + '" style="width:' + Math.min(1, d / s) * 100 + '%"></div></div>' +
+      sparkline(hist) +
+      (youHere ? '<div class="you-here">● you are pooled here</div>' : '');
+    board.appendChild(card);
+  }
+}
+
+function deltaHtml(d) {
+  if (!d) return '';
+  return '<span class="delta ' + (d > 0 ? 'up' : 'down') + '">' + (d > 0 ? '▲' : '▼') + ' $' + Math.abs(d) + '</span>';
+}
+
+function sparkline(hist) {
+  const w = 180, h = 34, pad = 3;
+  const min = Math.min(...hist), max = Math.max(...hist), span = Math.max(1, max - min);
+  const pt = (p, i) => [
+    pad + (i / Math.max(1, hist.length - 1)) * (w - 2 * pad),
+    h - pad - ((p - min) / span) * (h - 2 * pad),
+  ];
+  const pts = hist.map((p, i) => pt(p, i).map((v) => v.toFixed(1)).join(',')).join(' ');
+  const [ex, ey] = pt(hist[hist.length - 1], hist.length - 1);
+  return '<svg class="spark" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" aria-hidden="true">' +
+    '<polyline points="' + pts + '"/><circle cx="' + ex.toFixed(1) + '" cy="' + ey.toFixed(1) + '" r="2.4"/></svg>';
+}
+
+function renderSeatMap(you) {
+  const el = $('#seat-map');
+  el.innerHTML = '<div class="screen">SCREEN</div>';
+  const mine = you && you.assignment;
+  for (const row of VENUE.rows) {
+    const rowEl = document.createElement('div');
+    rowEl.className = 'seat-row';
+    let html = '<span class="rl">' + row.label + '</span>';
+    row.seats.forEach((tierId, i) => {
+      const isMine = mine && mine.seat.row === row.label && mine.seat.seat === i + 1;
+      html += '<span class="seat ' + tierId + (isMine ? ' mine" title="Your seat' : '') + '"></span>';
+    });
+    html += '<span class="rl">' + row.label + '</span>';
+    rowEl.innerHTML = html;
+    el.appendChild(rowEl);
+    if (row.label === 'H') {
+      const gap = document.createElement('div');
+      gap.className = 'aisle-gap';
+      el.appendChild(gap);
+    }
+  }
+}
+
+function renderLegend() {
+  $('#map-legend').innerHTML = TIERS.map((t) =>
+    '<span><span class="chip" style="background:var(--' + t.id + ')"></span>' + t.name + ' · floor $' + t.floorPrice + '</span>'
+  ).join('');
+}
+
+function buildJoinForm() {
+  const sf = $('#join-showings');
+  sf.querySelectorAll('.check-row').forEach((n) => n.remove());
+  for (const s of drop.showings) {
+    sf.insertAdjacentHTML('beforeend',
+      '<label class="check-row"><input type="checkbox" name="showing" value="' + s + '" checked> ' + s + '</label>');
+  }
+  const tf = $('#join-tiers');
+  tf.querySelectorAll('.check-row').forEach((n) => n.remove());
+  for (const t of TIERS) {
+    tf.insertAdjacentHTML('beforeend',
+      '<label class="check-row"><input type="checkbox" name="tier" value="' + t.id + '"' + (t.id !== 't4' ? ' checked' : '') + '>' +
+      '<span class="tier-dot" style="background:var(--' + t.id + ')"></span>' +
+      '<span class="grow">' + t.name + '</span>' +
+      'max $<input type="number" name="max-' + t.id + '" min="1" value="' + suggestedMax(t.id) + '"></label>');
+  }
+}
+
+function readTierMaxes(prefix) {
+  return TIERS
+    .filter((t) => $('input[name="' + prefix + 'tier"][value="' + t.id + '"]')?.checked)
+    .map((t) => ({ tierId: t.id, maxPrice: Number($('input[name="' + prefix + 'max-' + t.id + '"]').value) }));
+}
+
+function join() {
+  $('#join-error').textContent = '';
+  const showings = [...document.querySelectorAll('input[name="showing"]:checked')].map((i) => i.value);
+  try {
+    if (drop.phase === 'settled') throw new Error('This drop already settled — press Reset to run another');
+    const b = drop.addBidder({ name: $('#join-name').value, showings, tierMaxes: readTierMaxes('') });
+    youId = b.id;
+    render();
+  } catch (e) {
+    $('#join-error').textContent = e.message;
+  }
+}
+
+function renderYou(you) {
+  if (!you) return;
+  $('#join-panel').hidden = true;
+  $('#you-panel').hidden = false;
+  const st = $('#you-status');
+  const editable = !you.withdrawn && drop.phase !== 'settled';
+  $('#you-tiers').hidden = !editable;
+  $('#update-btn').hidden = !editable;
+  $('#withdraw-btn').hidden = !editable;
+
+  if (you.withdrawn) {
+    st.innerHTML = '<div class="you-status-card">You dropped out. You won’t be charged.</div>';
+    return;
+  }
+  if (drop.phase === 'settled') {
+    if (you.assignment) {
+      const t = tierById(you.assignment.tierId);
+      st.innerHTML = '<div class="you-status-card">🎟️ <span class="big">You’re in!</span><br>' +
+        you.assignment.showing + ' · ' + t.name + '<br>Seat <b class="mono">' + you.assignment.seat.row + you.assignment.seat.seat +
+        '</b> — charged <b class="mono">$' + you.assignment.pricePaid + '</b> (same as everyone in your tier)</div>';
+    } else {
+      st.innerHTML = '<div class="you-status-card">😔 You were priced out of every tier you accepted. You were not charged.</div>';
+    }
+    return;
+  }
+  const target = drop.targetTier(you);
+  st.innerHTML = '<div class="you-status-card">' + (target
+    ? 'You’re pooled in <b>' + tierById(target).name + '</b> at the current price of <b class="mono">$' + drop.prices[target] +
+      '</b>. If it settles here, that’s what you pay — guaranteed seat.'
+    : '⚠️ Every tier you accepted is priced above your max. You’re out unless prices fall or you raise a max.') + '</div>';
+
+  const tf = $('#you-tiers');
+  if (tf.dataset.built !== you.id) {
+    tf.dataset.built = you.id;
+    tf.querySelectorAll('.check-row').forEach((n) => n.remove());
+    for (const t of TIERS) {
+      const tm = you.tierMaxes.find((x) => x.tierId === t.id);
+      tf.insertAdjacentHTML('beforeend',
+        '<label class="check-row"><input type="checkbox" name="ytier" value="' + t.id + '"' + (tm ? ' checked' : '') + '>' +
+        '<span class="tier-dot" style="background:var(--' + t.id + ')"></span>' +
+        '<span class="grow">' + t.name + '</span>' +
+        'max $<input type="number" name="ymax-' + t.id + '" min="1" value="' + (tm ? tm.maxPrice : suggestedMax(t.id)) + '"></label>');
+    }
+  }
+}
+
+function updateMaxes() {
+  $('#you-error').textContent = '';
+  const you = drop.bidders.get(youId);
+  const cleaned = readTierMaxes('y').filter((tm) => tm.maxPrice > 0);
+  if (cleaned.length === 0) {
+    $('#you-error').textContent = 'Keep at least one tier, or drop out instead';
+    return;
+  }
+  you.tierMaxes = cleaned;
+  render();
+}
+
+function renderResults() {
+  const panel = $('#results-panel');
+  if (drop.phase !== 'settled' || !drop.results) { panel.hidden = true; return; }
+  panel.hidden = false;
+  const r = drop.results;
+  $('#results').innerHTML =
+    '<p>' + r.winners + ' of ' + r.participants + ' bidders got seats in ' + r.rounds +
+    ' rounds · total revenue <span class="mono">$' + r.revenue.toLocaleString() + '</span></p>' +
+    '<table class="results"><tr><th>Tier</th><th>Settled price</th><th>Seats sold</th></tr>' +
+    TIERS.map((t) => {
+      const row = r.byTier[t.id];
+      return '<tr><td>' + t.name + '</td><td class="num">$' + row.finalPrice + '</td><td class="num">' + row.sold + ' / ' + row.supply + '</td></tr>';
+    }).join('') + '</table>';
+}
+
+/* ---------------- wiring ---------------- */
+
+$('#join-btn').addEventListener('click', join);
+$('#update-btn').addEventListener('click', updateMaxes);
+$('#withdraw-btn').addEventListener('click', () => {
+  const you = drop.bidders.get(youId);
+  if (you && drop.phase !== 'settled') { you.withdrawn = true; render(); }
+});
+$('#start-btn').addEventListener('click', startDrop);
+document.querySelectorAll('[data-ctl]').forEach((btn) => btn.addEventListener('click', () => {
+  const a = btn.dataset.ctl;
+  if (a === 'tick') { if (drop.phase === 'lobby') beginBidding(); doTick(); }
+  if (a === 'bots') { if (drop.phase !== 'settled') { addBots(drop, 300); render(); } }
+  if (a === 'reset') reset();
+}));
+
+renderLegend();
+reset();
+setInterval(() => { renderHeader(); }, 300);
+</script>
