@@ -19,10 +19,11 @@
     --text: #efe9e4;
     --muted: #9d95a3;
     --ivory: #f5efe6;
-    --t1: #44c076;
-    --t2: #4da3e0;
-    --t3: #e0b23a;
-    --t4: #e05a4e;
+    --t1: #b07fe8;
+    --t2: #44c076;
+    --t3: #4da3e0;
+    --t4: #e0b23a;
+    --t5: #e05a4e;
     --display: "Barlow Condensed", "Arial Narrow", sans-serif;
     --body: "Public Sans", system-ui, sans-serif;
     --mono: "IBM Plex Mono", ui-monospace, monospace;
@@ -83,18 +84,19 @@
   .tier-card.t2 { border-color: var(--t2); }
   .tier-card.t3 { border-color: var(--t3); }
   .tier-card.t4 { border-color: var(--t4); }
+  .tier-card.t5 { border-color: var(--t5); }
   .tier-card .tname { font-family: var(--display); font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; font-size: 1rem; }
   .tier-card .price { font-family: var(--mono); font-weight: 600; font-size: 1.8rem; font-variant-numeric: tabular-nums; }
   .price-flash { animation: flash 0.9s ease-out; }
   @keyframes flash { 0% { color: var(--ivory); } 100% { color: inherit; } }
   @media (prefers-reduced-motion: reduce) { .price-flash { animation: none; } }
   .delta { font-family: var(--mono); font-size: 0.85rem; margin-left: 0.3rem; }
-  .delta.up { color: var(--t4); }
-  .delta.down { color: var(--t1); }
+  .delta.up { color: var(--t5); }
+  .delta.down { color: var(--t2); }
   .meta { color: var(--muted); font-size: 0.78rem; margin-top: 0.15rem; font-variant-numeric: tabular-nums; }
   .demand-bar { height: 6px; border-radius: 3px; background: var(--panel-2); margin-top: 0.5rem; overflow: hidden; }
-  .demand-bar > div { height: 100%; border-radius: 3px; background: var(--t2); }
-  .demand-bar > div.over { background: var(--t4); }
+  .demand-bar > div { height: 100%; border-radius: 3px; background: var(--t3); }
+  .demand-bar > div.over { background: var(--t5); }
   .spark { margin-top: 0.4rem; width: 100%; height: 34px; display: block; }
   .spark polyline { fill: none; stroke: var(--muted); stroke-width: 1.8; }
   .spark circle { fill: var(--ivory); }
@@ -121,8 +123,30 @@
   }
   .flat-stat { margin-top: 0.8rem; font-size: 0.92rem; }
   .flat-stat b { font-family: var(--mono); font-variant-numeric: tabular-nums; }
-  .flat-stat .lift-up { color: var(--t1); }
-  .flat-stat .lift-down { color: var(--t4); }
+  .flat-stat .lift-up { color: var(--t2); }
+  .flat-stat .lift-down { color: var(--t5); }
+  .tier-row {
+    border: 1px solid var(--line); border-radius: 8px;
+    padding: 0.45rem 0.6rem; margin: 0.4rem 0;
+    display: grid; grid-template-columns: 1fr auto; gap: 0.35rem 0.6rem; align-items: center;
+  }
+  .tier-row .trow-name {
+    display: flex; align-items: center; gap: 0.5rem;
+    font-size: 0.86rem; cursor: pointer; margin: 0;
+  }
+  .tier-row .trow-max {
+    display: flex; align-items: center; gap: 0.35rem; justify-self: end;
+    font-size: 0.84rem; white-space: nowrap; color: var(--muted);
+  }
+  .tier-row input[type="number"] { width: 76px; margin: 0; text-align: right; color: var(--text); }
+  .tier-row .steppers { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 3px; }
+  .schip-row { display: flex; flex-wrap: wrap; gap: 0.35rem; padding: 0.2rem 0; }
+  .schip {
+    border-radius: 999px; padding: 0.22rem 0.68rem; font-size: 0.8rem;
+    font-family: var(--mono); letter-spacing: 0; text-transform: none;
+    background: var(--panel-2); border: 1px solid var(--line); cursor: pointer;
+  }
+  .schip.on { background: var(--ivory); color: #221e26; border-color: var(--ivory); font-weight: 600; }
   .you-here {
     display: inline-block; margin-top: 0.35rem; padding: 0.1rem 0.5rem; border-radius: 999px;
     background: var(--ivory); color: #221e26;
@@ -149,6 +173,7 @@
   .seat.t2 { background: var(--t2); }
   .seat.t3 { background: var(--t3); }
   .seat.t4 { background: var(--t4); }
+  .seat.t5 { background: var(--t5); }
   .seat.mine { outline: 2px solid var(--ivory); opacity: 1; transform: scale(1.45); }
   .aisle-gap { height: 11px; }
   .legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; margin-top: 0.7rem; font-size: 0.78rem; color: var(--muted); }
@@ -285,21 +310,27 @@
 /* ---------------- venue: Lincoln Square style room, our own zones ---------------- */
 
 const TIERS = [
-  { id: 't1', name: 'Tier 1 · Prime Center', floorPrice: 30 },
-  { id: 't2', name: 'Tier 2 · Great', floorPrice: 25 },
-  { id: 't3', name: 'Tier 3 · Okay', floorPrice: 20 },
-  { id: 't4', name: 'Tier 4 · Front', floorPrice: 15 },
+  { id: 't1', name: 'Tier 1 · Center of Center', floorPrice: 40 },
+  { id: 't2', name: 'Tier 2 · Prime Center', floorPrice: 30 },
+  { id: 't3', name: 'Tier 3 · Great', floorPrice: 25 },
+  { id: 't4', name: 'Tier 4 · Okay', floorPrice: 20 },
+  { id: 't5', name: 'Tier 5 · Front', floorPrice: 15 },
 ];
 const TIER_ORDER = TIERS.map((t) => t.id);
 const tierById = (id) => TIERS.find((t) => t.id === id);
 
 const sideRule = (w, side, center) => (i, n) => (i < w || i >= n - w ? side : center);
+// H and J at the cross-aisle: sides T3, center block T2, middle 12 seats T1.
+const coreRule = (i, n) => {
+  if (i < 8 || i >= n - 8) return 't3';
+  return Math.abs(i - (n - 1) / 2) <= 5.5 ? 't1' : 't2';
+};
 const ROW_DEFS = [
-  ['A', 28, () => 't4'], ['B', 32, () => 't4'], ['C', 36, () => 't4'], ['D', 38, () => 't4'],
-  ['E', 38, sideRule(5, 't4', 't3')], ['F', 38, sideRule(5, 't4', 't3')],
-  ['G', 38, sideRule(8, 't2', 't1')], ['H', 38, sideRule(8, 't2', 't1')],
-  ['J', 38, sideRule(8, 't2', 't1')], ['K', 38, sideRule(8, 't2', 't1')],
-  ['L', 38, sideRule(10, 't3', 't2')], ['M', 36, sideRule(10, 't3', 't2')],
+  ['A', 28, () => 't5'], ['B', 32, () => 't5'], ['C', 36, () => 't5'], ['D', 38, () => 't5'],
+  ['E', 38, sideRule(5, 't5', 't4')], ['F', 38, sideRule(5, 't5', 't4')],
+  ['G', 38, sideRule(8, 't3', 't2')], ['H', 38, coreRule],
+  ['J', 38, coreRule], ['K', 38, sideRule(8, 't3', 't2')],
+  ['L', 38, sideRule(10, 't4', 't3')], ['M', 36, sideRule(10, 't4', 't3')],
 ];
 const VENUE = (() => {
   const rows = ROW_DEFS.map(([label, n, rule]) => ({
@@ -312,10 +343,11 @@ const VENUE = (() => {
 })();
 
 const TIER_ROW_PREF = {
-  t1: ['H', 'J', 'G', 'K'],
-  t2: ['J', 'K', 'G', 'H', 'L', 'M'],
-  t3: ['F', 'E', 'L', 'M'],
-  t4: ['D', 'C', 'E', 'F', 'B', 'A'],
+  t1: ['H', 'J'],
+  t2: ['H', 'J', 'G', 'K'],
+  t3: ['J', 'K', 'G', 'H', 'L', 'M'],
+  t4: ['F', 'E', 'L', 'M'],
+  t5: ['D', 'C', 'E', 'F', 'B', 'A'],
 };
 function seatsForTier(tierId) {
   const seats = [];
@@ -515,15 +547,15 @@ class Drop {
 
 const SEGMENTS = [
   { id: 'superfan', name: 'Superfans / high income', weight: 0.07,
-    budget: { median: 260, sigma: 0.45 }, topTiers: [['t1', 0.9], ['t2', 0.1]], maxDepth: 2 },
+    budget: { median: 260, sigma: 0.45 }, topTiers: [['t1', 0.7], ['t2', 0.3]], maxDepth: 2 },
   { id: 'comfortable', name: 'Comfortable professionals', weight: 0.18,
-    budget: { median: 110, sigma: 0.4 }, topTiers: [['t1', 0.6], ['t2', 0.4]], maxDepth: 3 },
+    budget: { median: 110, sigma: 0.4 }, topTiers: [['t1', 0.1], ['t2', 0.5], ['t3', 0.4]], maxDepth: 3 },
   { id: 'middle', name: 'Middle income', weight: 0.4,
-    budget: { median: 55, sigma: 0.45 }, topTiers: [['t1', 0.35], ['t2', 0.4], ['t3', 0.25]], maxDepth: 3 },
+    budget: { median: 55, sigma: 0.45 }, topTiers: [['t2', 0.3], ['t3', 0.4], ['t4', 0.3]], maxDepth: 3 },
   { id: 'budget', name: 'Budget-conscious', weight: 0.25,
-    budget: { median: 28, sigma: 0.4 }, topTiers: [['t2', 0.15], ['t3', 0.5], ['t4', 0.35]], maxDepth: 4 },
+    budget: { median: 28, sigma: 0.4 }, topTiers: [['t3', 0.15], ['t4', 0.5], ['t5', 0.35]], maxDepth: 4 },
   { id: 'student', name: 'Students / lowest budget', weight: 0.1,
-    budget: { median: 16, sigma: 0.35 }, topTiers: [['t3', 0.3], ['t4', 0.7]], maxDepth: 4 },
+    budget: { median: 16, sigma: 0.35 }, topTiers: [['t4', 0.3], ['t5', 0.7]], maxDepth: 4 },
 ];
 const STEP_DOWN = 0.7;
 
@@ -566,7 +598,7 @@ let drop, youId, lobbyEndsAt, nextTickAt, timer, prevPrices, pendingTier;
 
 const $ = (s) => document.querySelector(s);
 const secs = (t) => Math.max(0, Math.ceil((t - Date.now()) / 1000));
-const suggestedMax = (id) => ({ t1: 80, t2: 55, t3: 35, t4: 20 })[id] ?? 30;
+const suggestedMax = (id) => ({ t1: 120, t2: 80, t3: 55, t4: 35, t5: 20 })[id] ?? 30;
 
 function reset() {
   clearTimeout(timer);
@@ -761,13 +793,14 @@ function renderLegend() {
 
 function buildJoinForm() {
   const tf = $('#join-tiers');
-  tf.querySelectorAll('.check-row').forEach((n) => n.remove());
+  tf.querySelectorAll('.tier-row').forEach((n) => n.remove());
   for (const t of TIERS) {
     tf.insertAdjacentHTML('beforeend',
-      '<label class="check-row"><input type="checkbox" name="tier" value="' + t.id + '"' + (t.id !== 't4' ? ' checked' : '') + '>' +
-      '<span class="tier-dot" style="background:var(--' + t.id + ')"></span>' +
-      '<span class="grow">' + t.name + '</span>' +
-      'max $<input type="number" name="max-' + t.id + '" min="1" value="' + suggestedMax(t.id) + '"></label>');
+      '<div class="tier-row">' +
+      '<label class="trow-name"><input type="checkbox" name="tier" value="' + t.id + '"' + (t.id !== 't5' ? ' checked' : '') + '>' +
+      '<span class="tier-dot" style="background:var(--' + t.id + ')"></span>' + t.name + '</label>' +
+      '<span class="trow-max">max $ <input type="number" name="max-' + t.id + '" min="1" value="' + suggestedMax(t.id) + '"></span>' +
+      '</div>');
   }
 }
 
@@ -802,15 +835,11 @@ function renderYou(you) {
   $('#withdraw-btn').hidden = !editable;
   if (editable) {
     const sf = $('#you-showings');
-    if (sf.dataset.built !== you.id) {
-      sf.dataset.built = you.id;
-      sf.querySelectorAll('.check-row').forEach((n) => n.remove());
-      for (const s of drop.showings) {
-        sf.insertAdjacentHTML('beforeend',
-          '<label class="check-row"><input type="checkbox" name="yshowing" value="' + s + '"' +
-          (you.showings.includes(s) ? ' checked' : '') + '> ' + s + '</label>');
-      }
-    }
+    sf.querySelectorAll('.schip-row').forEach((n) => n.remove());
+    sf.insertAdjacentHTML('beforeend',
+      '<div class="schip-row">' + drop.showings.map((s) =>
+        '<button type="button" class="schip' + (you.showings.includes(s) ? ' on' : '') + '" data-show="' + s +
+        '" title="' + s + '">' + s.replace('Showing ', '') + '</button>').join('') + '</div>');
     $('#showing-count').textContent = 'you’re bidding on ' + you.showings.length + ' of ' + drop.showings.length;
   }
 
@@ -838,18 +867,18 @@ function renderYou(you) {
   const tf = $('#you-tiers');
   if (tf.dataset.built !== you.id) {
     tf.dataset.built = you.id;
-    tf.querySelectorAll('.check-row').forEach((n) => n.remove());
+    tf.querySelectorAll('.tier-row').forEach((n) => n.remove());
     for (const t of TIERS) {
       const tm = you.tierMaxes.find((x) => x.tierId === t.id);
       tf.insertAdjacentHTML('beforeend',
-        '<label class="check-row"><input type="checkbox" name="ytier" value="' + t.id + '"' + (tm ? ' checked' : '') + '>' +
-        '<span class="tier-dot" style="background:var(--' + t.id + ')"></span>' +
-        '<span class="grow">' + t.name + '</span>' +
-        'max $<input type="number" name="ymax-' + t.id + '" min="1" value="' + (tm ? tm.maxPrice : suggestedMax(t.id)) + '">' +
-        ['-100', '-10', '-1', '+1', '+10', '+100'].map((s) =>
+        '<div class="tier-row">' +
+        '<label class="trow-name"><input type="checkbox" name="ytier" value="' + t.id + '"' + (tm ? ' checked' : '') + '>' +
+        '<span class="tier-dot" style="background:var(--' + t.id + ')"></span>' + t.name + '</label>' +
+        '<span class="trow-max">max $ <input type="number" name="ymax-' + t.id + '" min="1" value="' + (tm ? tm.maxPrice : suggestedMax(t.id)) + '"></span>' +
+        '<span class="steppers">' + ['-100', '-10', '-1', '+1', '+10', '+100'].map((s) =>
           '<button type="button" class="step" data-step="' + s + '" data-tier="' + t.id + '">' + s + '</button>'
-        ).join('') +
-        '</label>');
+        ).join('') + '</span>' +
+        '</div>');
     }
   }
 }
@@ -910,18 +939,21 @@ $('#tier-board').addEventListener('click', (e) => {
 });
 $('#confirm-switch').addEventListener('click', () => { if (pendingTier) switchToTier(pendingTier); });
 $('#cancel-switch').addEventListener('click', () => { pendingTier = null; render(); });
-$('#you-showings').addEventListener('change', () => {
+$('#you-showings').addEventListener('click', (e) => {
+  const chip = e.target.closest('.schip');
+  if (!chip) return;
   const you = youId && drop.bidders.get(youId);
   if (!you || you.withdrawn || drop.phase === 'settled') return;
-  const sel = [...document.querySelectorAll('input[name="yshowing"]:checked')].map((i) => i.value);
+  const show = chip.dataset.show;
+  const sel = you.showings.includes(show)
+    ? you.showings.filter((x) => x !== show)
+    : drop.showings.filter((x) => you.showings.includes(x) || x === show);
   if (sel.length === 0) {
-    $('#you-error').textContent = 'Keep at least one showing';
-    $('#you-showings').dataset.built = '';
-    render();
+    $('#you-error').textContent = 'Keep at least one show';
     return;
   }
   $('#you-error').textContent = '';
-  you.showings = drop.showings.filter((s) => sel.includes(s));
+  you.showings = sel;
   render();
 });
 $('#you-tiers').addEventListener('click', (e) => {
@@ -946,7 +978,6 @@ document.querySelectorAll('[data-ctl]').forEach((btn) => btn.addEventListener('c
   if (a === 'shows') {
     if (drop.phase !== 'settled') {
       drop.addShowings(Number(btn.dataset.count));
-      $('#you-showings').dataset.built = '';
       render();
     }
   }

@@ -223,21 +223,22 @@ function buildJoinForm() {
   $('#join-panel').hidden = false;
   $('#you-panel').hidden = true;
   const tf = $('#join-tiers');
-  tf.querySelectorAll('.check-row').forEach((n) => n.remove());
+  tf.querySelectorAll('.tier-row').forEach((n) => n.remove());
   for (const t of tiers) {
     tf.insertAdjacentHTML(
       'beforeend',
-      `<label class="check-row">
-        <input type="checkbox" name="tier" value="${t.id}" ${t.id !== 't4' ? 'checked' : ''}>
-        <span class="tier-dot" style="background:var(--${t.id})"></span>
-        <span style="flex:1">${t.name}</span>
-        max $<input type="number" name="max-${t.id}" min="1" value="${suggestedMax(t.id)}">
-      </label>`
+      `<div class="tier-row">
+        <label class="trow-name">
+          <input type="checkbox" name="tier" value="${t.id}" ${t.id !== 't5' ? 'checked' : ''}>
+          <span class="tier-dot" style="background:var(--${t.id})"></span>${t.name}
+        </label>
+        <span class="trow-max">max $ <input type="number" name="max-${t.id}" min="1" value="${suggestedMax(t.id)}"></span>
+      </div>`
     );
   }
 }
 
-const suggestedMax = (tierId) => ({ t1: 80, t2: 55, t3: 35, t4: 20 })[tierId] ?? 30;
+const suggestedMax = (tierId) => ({ t1: 120, t2: 80, t3: 55, t4: 35, t5: 20 })[tierId] ?? 30;
 
 async function join() {
   $('#join-error').textContent = '';
@@ -296,19 +297,19 @@ function renderYou() {
         : `⚠️ Every tier you accepted is priced above your max. You're out unless prices fall or you raise a max.`
     }</div>`;
 
-  // showings editor
+  // showings editor: one toggle chip per show
   const sf = $('#you-showings');
   sf.hidden = false;
-  if (sf.dataset.built !== you.id) {
-    sf.dataset.built = you.id;
-    sf.querySelectorAll('.check-row').forEach((n) => n.remove());
-    for (const s of state.showings) {
-      sf.insertAdjacentHTML(
-        'beforeend',
-        `<label class="check-row"><input type="checkbox" name="yshowing" value="${s}" ${you.showings.includes(s) ? 'checked' : ''}> ${s}</label>`
-      );
-    }
-  }
+  sf.querySelectorAll('.chip-row').forEach((n) => n.remove());
+  sf.insertAdjacentHTML(
+    'beforeend',
+    `<div class="chip-row">${state.showings
+      .map(
+        (s) =>
+          `<button type="button" class="chip${you.showings.includes(s) ? ' on' : ''}" data-show="${s}" title="${s}">${s.replace('Showing ', '')}</button>`
+      )
+      .join('')}</div>`
+  );
   $('#showing-count').textContent = `you're bidding on ${you.showings.length} of ${state.showings.length}`;
 
   // maxes editor (don't rebuild while user is typing in it)
@@ -318,7 +319,7 @@ function renderYou() {
   $('#withdraw-btn').hidden = false;
   if (tf.dataset.built !== you.id) {
     tf.dataset.built = you.id;
-    tf.querySelectorAll('.check-row').forEach((n) => n.remove());
+    tf.querySelectorAll('.tier-row').forEach((n) => n.remove());
     for (const t of tiers) {
       const tm = you.tierMaxes.find((x) => x.tierId === t.id);
       const steppers = ['-100', '-10', '-1', '+1', '+10', '+100']
@@ -326,13 +327,14 @@ function renderYou() {
         .join('');
       tf.insertAdjacentHTML(
         'beforeend',
-        `<label class="check-row">
-          <input type="checkbox" name="ytier" value="${t.id}" ${tm ? 'checked' : ''}>
-          <span class="tier-dot" style="background:var(--${t.id})"></span>
-          <span style="flex:1">${t.name}</span>
-          max $<input type="number" name="ymax-${t.id}" min="1" value="${tm ? tm.maxPrice : suggestedMax(t.id)}">
-          ${steppers}
-        </label>`
+        `<div class="tier-row">
+          <label class="trow-name">
+            <input type="checkbox" name="ytier" value="${t.id}" ${tm ? 'checked' : ''}>
+            <span class="tier-dot" style="background:var(--${t.id})"></span>${t.name}
+          </label>
+          <span class="trow-max">max $ <input type="number" name="ymax-${t.id}" min="1" value="${tm ? tm.maxPrice : suggestedMax(t.id)}"></span>
+          <span class="steppers">${steppers}</span>
+        </div>`
       );
     }
   }
@@ -420,22 +422,25 @@ function wireButtons() {
     renderTierBoard();
     renderPendingBar();
   });
-  $('#you-showings').addEventListener('change', async () => {
+  $('#you-showings').addEventListener('click', async (e) => {
+    const chip = e.target.closest('.chip');
+    if (!chip) return;
     const you = state?.you;
     if (!you || you.withdrawn || state.phase === 'settled') return;
-    const sel = [...document.querySelectorAll('input[name="yshowing"]:checked')].map((i) => i.value);
+    const s = chip.dataset.show;
+    const sel = you.showings.includes(s)
+      ? you.showings.filter((x) => x !== s)
+      : state.showings.filter((x) => you.showings.includes(x) || x === s);
     if (sel.length === 0) {
-      $('#you-error').textContent = 'Keep at least one showing';
-      $('#you-showings').dataset.built = '';
-      renderYou();
+      $('#you-error').textContent = 'Keep at least one show';
       return;
     }
     $('#you-error').textContent = '';
     try {
       await api('/api/update', { bidderId, showings: sel });
       await refresh();
-    } catch (e) {
-      $('#you-error').textContent = e.message;
+    } catch (err) {
+      $('#you-error').textContent = err.message;
     }
   });
   $('#you-tiers').addEventListener('click', (e) => {

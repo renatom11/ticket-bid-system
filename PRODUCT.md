@@ -64,10 +64,11 @@ Square-style auditorium (rows A–M, cross-aisle after H) with four custom zones
 
 | Tier | Zone | Character |
 |---|---|---|
-| Tier 1 · Prime Center | center of rows G–K | the seats everyone fights for |
-| Tier 2 · Great | sides of G–K, center of L–M | great rows, off-center |
-| Tier 3 · Okay | centers of E–F, edges of L–M | closer or farther, still fine |
-| Tier 4 · Front | rows A–D, edges of E–F | neck-craning territory, priced accordingly |
+| Tier 1 · Center of Center | middle 12 seats of rows H–J | the best of the best, guaranteed the core |
+| Tier 2 · Prime Center | rest of the center of G–K | the seats everyone fights for |
+| Tier 3 · Great | sides of G–K, center of L–M | great rows, off-center |
+| Tier 4 · Okay | centers of E–F, edges of L–M | closer or farther, still fine |
+| Tier 5 · Front | rows A–D, edges of E–F | neck-craning territory, priced accordingly |
 
 One drop covers many showtimes at once (the prototype: five simultaneous showings), and a buyer's
 "acceptable showings" set is the hook for the full vision — different dates, different times, each

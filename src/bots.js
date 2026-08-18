@@ -15,7 +15,7 @@ export const SEGMENTS = [
     name: 'Superfans / high income',
     weight: 0.07,
     budget: { median: 260, sigma: 0.45 }, // for their top tier; tails past $600
-    topTiers: [['t1', 0.9], ['t2', 0.1]],
+    topTiers: [['t1', 0.7], ['t2', 0.3]],
     maxDepth: 2, // would rather skip than sit up front
   },
   {
@@ -23,7 +23,7 @@ export const SEGMENTS = [
     name: 'Comfortable professionals',
     weight: 0.18,
     budget: { median: 110, sigma: 0.4 },
-    topTiers: [['t1', 0.6], ['t2', 0.4]],
+    topTiers: [['t1', 0.1], ['t2', 0.5], ['t3', 0.4]],
     maxDepth: 3,
   },
   {
@@ -31,7 +31,7 @@ export const SEGMENTS = [
     name: 'Middle income',
     weight: 0.4,
     budget: { median: 55, sigma: 0.45 },
-    topTiers: [['t1', 0.35], ['t2', 0.4], ['t3', 0.25]],
+    topTiers: [['t2', 0.3], ['t3', 0.4], ['t4', 0.3]],
     maxDepth: 3,
   },
   {
@@ -39,7 +39,7 @@ export const SEGMENTS = [
     name: 'Budget-conscious',
     weight: 0.25,
     budget: { median: 28, sigma: 0.4 },
-    topTiers: [['t2', 0.15], ['t3', 0.5], ['t4', 0.35]],
+    topTiers: [['t3', 0.15], ['t4', 0.5], ['t5', 0.35]],
     maxDepth: 4, // any seat beats no seat
   },
   {
@@ -47,7 +47,7 @@ export const SEGMENTS = [
     name: 'Students / lowest budget',
     weight: 0.1,
     budget: { median: 16, sigma: 0.35 },
-    topTiers: [['t3', 0.3], ['t4', 0.7]],
+    topTiers: [['t4', 0.3], ['t5', 0.7]],
     maxDepth: 4,
   },
 ];

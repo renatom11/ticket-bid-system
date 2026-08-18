@@ -44,12 +44,14 @@ The zones are our own, based on geometry rather than AMC's recommended-seat colo
 
 | Tier | Zone | Seats/showing | Floor |
 |---|---|---|---|
-| T1 Prime Center | center blocks of G, H, J, K | 88 | $30 |
-| T2 Great | sides of G–K, centers of L, M | 98 | $25 |
-| T3 Okay | centers of E, F; far sides of L, M | 96 | $20 |
-| T4 Front | rows A–D, edges of E, F | 154 | $15 |
+| T1 Center of Center | middle 12 seats of H and J (the core, guaranteed) | 24 | $40 |
+| T2 Prime Center | rest of the center blocks of G–K | 64 | $30 |
+| T3 Great | sides of G–K, centers of L, M | 98 | $25 |
+| T4 Okay | centers of E, F; far sides of L, M | 96 | $20 |
+| T5 Front | rows A–D, edges of E, F | 154 | $15 |
 
-One drop = 5 simultaneous showings of that room, so e.g. Tier 1 has 440 seats total.
+One drop = 5 simultaneous showings of that room, so e.g. Tier 1 has 120 seats total (and the
+Shows control can add more rooms mid-drop).
 
 ## The simulated crowd
 
@@ -72,26 +74,26 @@ Settlement reports a per-segment equity breakdown (who got seated, at what avera
 `npm run sim` (2500 bidders, deterministic seed):
 
 ```
-Round | t1 price (demand/supply) | t2 price          | t3 price          | t4 price
-start | $  30 ( 756/440)         | $ 25 ( 648/490)   | $ 20 ( 494/480)   | $ 15 (316/770)
-    3 | $  60 ( 604/440)         | $ 38 ( 612/490)   | $ 22 ( 512/480)   | $ 15 (316/770)
-    7 | $  73 ( 471/440)         | $ 47 ( 535/490)   | $ 26 ( 493/480)   | $ 15 (373/770)
-   15 | $  78 ( 434/440)         | $ 50 ( 478/490)   | $ 28 ( 467/480)   | $ 15 (419/770)
+Round | t1 price (demand)   | t2 price          | t3 price          | t4 price          | t5 price
+start | $  40 (173/120)     | $ 30 (547/320)    | $ 25 (640/490)    | $ 20 (543/480)    | $ 15 (316/770)
+    3 | $  69 (172/120)     | $ 58 (428/320)    | $ 36 (600/490)    | $ 24 (512/480)    | $ 15 (339/770)
+    6 | $  98 (162/120)     | $ 67 (345/320)    | $ 43 (542/490)    | $ 26 (474/480)    | $ 15 (399/770)
+final | $ 160 (120/120)     | $ 72 (320/320)    | $ 48 (482/490)    | $ 29 (460/480)    | $ 15 (436/770)
 
-Settled in 15 rounds · 1798/2500 bidders seated · revenue $77,113
+Settled: Center of Center sells out at $160, Prime Center at $72 · 1818/2500 seated
 
 Who got in, by segment:
-Superfans / high income       187/188  seated ( 99%) · avg paid $75
-Comfortable professionals     418/444  seated ( 94%) · avg paid $63
-Middle income                 638/1018 seated ( 63%) · avg paid $41
-Budget-conscious              435/593  seated ( 73%) · avg paid $20
-Students / lowest budget      120/257  seated ( 47%) · avg paid $15
+Superfans / high income       179/188  seated ( 95%) · avg paid $126
+Comfortable professionals     402/444  seated ( 91%) · avg paid $61
+Middle income                 685/1018 seated ( 67%) · avg paid $40
+Budget-conscious              433/593  seated ( 73%) · avg paid $20
+Students / lowest budget      119/257  seated ( 46%) · avg paid $15
 ```
 
-Prices climb, priced-out bidders cascade into lower tiers, and the system finds equilibrium. Note
-the uniform-price property at work: superfans willing to pay $300–700 for Tier 1 still pay the
-$78 clearing price, because the *marginal* winner sets the price, not the richest one. Scarcity is
-what moves the number — `node sim/simulate.js 6000` settles Tier 1 at $164.
+Prices climb, priced-out bidders cascade into lower tiers, and the system finds equilibrium. The
+tiny Center of Center tier (120 seats against superfan demand) settles at more than double Prime
+Center — real scarcity pricing — while the uniform-price property still holds: superfans willing
+to pay $300–700 pay the same $160 clearing price as the marginal winner.
 
 ## Demoing the web UI
 

@@ -40,18 +40,19 @@ test('excess demand raises the price, spare capacity lowers it back toward the f
 
 test('bidders priced out of a tier cascade into their next tier pool', () => {
   const drop = makeDrop();
+  const f = drop.floors.t1;
   const cheap = drop.addBidder({
     name: 'cheap',
     showings: SHOWINGS,
     tierMaxes: [
-      { tierId: 't1', maxPrice: 31 },
-      { tierId: 't2', maxPrice: 100 },
+      { tierId: 't1', maxPrice: f + 1 },
+      { tierId: 't2', maxPrice: 500 },
     ],
   });
   assert.equal(drop.targetTier(cheap), 't1');
-  drop.prices.t1 = 32; // clock passes their t1 max
+  drop.prices.t1 = f + 2; // clock passes their t1 max
   assert.equal(drop.targetTier(cheap), 't2');
-  drop.prices.t1 = 30; // and they re-enter if it falls back
+  drop.prices.t1 = f; // and they re-enter if it falls back
   assert.equal(drop.targetTier(cheap), 't1');
 });
 
