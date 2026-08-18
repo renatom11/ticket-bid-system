@@ -320,10 +320,10 @@ const TIER_ORDER = TIERS.map((t) => t.id);
 const tierById = (id) => TIERS.find((t) => t.id === id);
 
 const sideRule = (w, side, center) => (i, n) => (i < w || i >= n - w ? side : center);
-// H and J at the cross-aisle: sides T3, center block T2, middle 12 seats T1.
+// H and J at the cross-aisle: sides T3, center block T2, middle 6 seats T1.
 const coreRule = (i, n) => {
   if (i < 8 || i >= n - 8) return 't3';
-  return Math.abs(i - (n - 1) / 2) <= 5.5 ? 't1' : 't2';
+  return Math.abs(i - (n - 1) / 2) <= 2.5 ? 't1' : 't2';
 };
 const ROW_DEFS = [
   ['A', 28, () => 't5'], ['B', 32, () => 't5'], ['C', 36, () => 't5'], ['D', 38, () => 't5'],

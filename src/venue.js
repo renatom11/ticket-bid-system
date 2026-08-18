@@ -40,10 +40,10 @@ function sideRule(sideWidth, sideTier, centerTier) {
 }
 
 // The two rows at the cross-aisle: sides are T3, center block T2, and the
-// middle 12 seats are the Center of Center.
+// middle 6 seats are the Center of Center.
 function coreRule(seatIdx, seatCount) {
   if (seatIdx < 8 || seatIdx >= seatCount - 8) return 't3';
-  return Math.abs(seatIdx - (seatCount - 1) / 2) <= 5.5 ? 't1' : 't2';
+  return Math.abs(seatIdx - (seatCount - 1) / 2) <= 2.5 ? 't1' : 't2';
 }
 
 function buildVenue() {

@@ -44,13 +44,13 @@ The zones are our own, based on geometry rather than AMC's recommended-seat colo
 
 | Tier | Zone | Seats/showing | Floor |
 |---|---|---|---|
-| T1 Center of Center | middle 12 seats of H and J (the core, guaranteed) | 24 | $40 |
-| T2 Prime Center | rest of the center blocks of G–K | 64 | $30 |
+| T1 Center of Center | middle 6 seats of H and J (the core, guaranteed) | 12 | $40 |
+| T2 Prime Center | rest of the center blocks of G–K | 76 | $30 |
 | T3 Great | sides of G–K, centers of L, M | 98 | $25 |
 | T4 Okay | centers of E, F; far sides of L, M | 96 | $20 |
 | T5 Front | rows A–D, edges of E, F | 154 | $15 |
 
-One drop = 5 simultaneous showings of that room, so e.g. Tier 1 has 120 seats total (and the
+One drop = 5 simultaneous showings of that room, so e.g. Tier 1 has just 60 seats total (and the
 Shows control can add more rooms mid-drop).
 
 ## The simulated crowd
@@ -74,26 +74,24 @@ Settlement reports a per-segment equity breakdown (who got seated, at what avera
 `npm run sim` (2500 bidders, deterministic seed):
 
 ```
-Round | t1 price (demand)   | t2 price          | t3 price          | t4 price          | t5 price
-start | $  40 (173/120)     | $ 30 (547/320)    | $ 25 (640/490)    | $ 20 (543/480)    | $ 15 (316/770)
-    3 | $  69 (172/120)     | $ 58 (428/320)    | $ 36 (600/490)    | $ 24 (512/480)    | $ 15 (339/770)
-    6 | $  98 (162/120)     | $ 67 (345/320)    | $ 43 (542/490)    | $ 26 (474/480)    | $ 15 (399/770)
-final | $ 160 (120/120)     | $ 72 (320/320)    | $ 48 (482/490)    | $ 29 (460/480)    | $ 15 (436/770)
-
-Settled: Center of Center sells out at $160, Prime Center at $72 · 1818/2500 seated
+Tier 1 · Center of Center settled $272 · sold  60/60
+Tier 2 · Prime Center     settled $ 69 · sold 377/380
+Tier 3 · Great            settled $ 47 · sold 478/490
+Tier 4 · Okay             settled $ 28 · sold 474/480
+Tier 5 · Front            settled $ 15 · sold 425/770
 
 Who got in, by segment:
-Superfans / high income       179/188  seated ( 95%) · avg paid $126
-Comfortable professionals     402/444  seated ( 91%) · avg paid $61
-Middle income                 685/1018 seated ( 67%) · avg paid $40
-Budget-conscious              433/593  seated ( 73%) · avg paid $20
-Students / lowest budget      119/257  seated ( 46%) · avg paid $15
+Superfans / high income       154/188  seated ( 82%) · avg paid $145
+Comfortable professionals     404/444  seated ( 91%) · avg paid $59
+Middle income                 699/1018 seated ( 69%) · avg paid $40
+Budget-conscious              437/593  seated ( 74%) · avg paid $20
+Students / lowest budget      120/257  seated ( 47%) · avg paid $15
 ```
 
 Prices climb, priced-out bidders cascade into lower tiers, and the system finds equilibrium. The
-tiny Center of Center tier (120 seats against superfan demand) settles at more than double Prime
-Center — real scarcity pricing — while the uniform-price property still holds: superfans willing
-to pay $300–700 pay the same $160 clearing price as the marginal winner.
+tiny Center of Center tier (60 seats against superfan demand) settles at nearly 4x Prime Center —
+real scarcity pricing — while the uniform-price property still holds: superfans willing to pay
+$300–700 pay the same $272 clearing price as the marginal winner.
 
 ## Demoing the web UI
 
