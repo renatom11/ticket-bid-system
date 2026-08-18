@@ -119,6 +119,34 @@ test('settlement: capacity respected, cell-uniform prices, nobody over their max
   }
 });
 
+test('tickWith (async worker path) matches tick exactly', async () => {
+  const { solveMarket } = await import('../src/market.js');
+  const rng1 = mulberry32(5);
+  const rng2 = mulberry32(5);
+  const a = makeDrop();
+  const b = makeDrop();
+  addBots(a, 400, rng1);
+  addBots(b, 400, rng2);
+  a.openBidding();
+  b.openBidding();
+  let guard = 0;
+  while ((a.phase === 'bidding' || b.phase === 'bidding') && guard++ < 100) {
+    const rngA = mulberry32(guard);
+    const rngB = mulberry32(guard);
+    adjustBots(a, rngA);
+    a.tick();
+    adjustBots(b, rngB);
+    const v = b.bookVersion; // what the browser driver does
+    const result = solveMarket(b.bookInput());
+    b.tickWith(result, v);
+  }
+  assert.equal(a.phase, 'settled');
+  assert.equal(b.phase, 'settled');
+  assert.deepEqual(a.prices, b.prices);
+  assert.equal(a.results.revenue, b.results.revenue);
+  assert.equal(a.results.winners, b.results.winners);
+});
+
 test('withdrawn bidders are never charged or seated', () => {
   const drop = makeDrop();
   const stay = drop.addBidder({ name: 'stay', showings: SHOWINGS, tierMaxes: [{ tierId: 't3', maxPrice: 30 }] });
@@ -138,6 +166,7 @@ test('bidders can update showings mid-drop, and committedTotal tracks the exact 
   assert.deepEqual(b.showings, ['S1', 'S2']);
   assert.throws(() => drop.updateBidder(b.id, { showings: [] }), /at least one showing/);
   drop.openBidding();
+  drop.tick();
   const c = drop.committedTotal();
   assert.equal(c.bidders, 1);
   assert.equal(c.total, drop.floors.t2);

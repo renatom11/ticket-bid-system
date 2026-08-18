@@ -125,19 +125,27 @@ export class Drop {
   openBidding() {
     if (this.phase !== 'lobby') return;
     this.phase = 'bidding';
-    this.solve();
-    this.lastSolvedVersion = this.bookVersion;
   }
 
-  // Exact clearing of the current book.
-  solve() {
-    const active = [...this.bidders.values()].filter((b) => !b.withdrawn);
-    const { prices, assignments } = solveMarket({
+  // The solver's input for the current book — also used by the browser build
+  // to ship the book to a Web Worker.
+  bookInput() {
+    return {
       showings: this.showings,
       tiers: TIERS,
       capacityPerShowing: VENUE.capacityPerShowing,
-      bidders: active,
-    });
+      bidders: [...this.bidders.values()]
+        .filter((b) => !b.withdrawn)
+        .map((b) => ({ id: b.id, showings: b.showings, tierMaxes: b.tierMaxes })),
+    };
+  }
+
+  // Exact clearing of the current book, synchronously.
+  solve() {
+    this.applySolveResult(solveMarket(this.bookInput()));
+  }
+
+  applySolveResult({ prices, assignments }) {
     this.cellPrices = prices;
     this.assignments = assignments;
     for (const t of TIER_ORDER) {
@@ -169,13 +177,27 @@ export class Drop {
   tick() {
     if (this.phase === 'lobby') this.openBidding();
     if (this.phase !== 'bidding') return this.summary();
-
-    this.round += 1;
-    const unchanged = this.bookVersion === this.lastSolvedVersion;
+    const snapshotVersion = this.bookVersion;
     this.solve();
-    this.lastSolvedVersion = this.bookVersion;
-    for (const t of TIER_ORDER) this.priceHistory[t].push(this.prices[t]);
+    return this.finishTick(snapshotVersion);
+  }
 
+  // Async variant for the browser: the caller snapshots bookInput() and its
+  // version, solves elsewhere (a Web Worker), then applies the result here.
+  // Edits made while the solve was in flight keep the book "changed" so the
+  // next tick picks them up.
+  tickWith(result, snapshotVersion) {
+    if (this.phase === 'lobby') this.openBidding();
+    if (this.phase !== 'bidding') return this.summary();
+    this.applySolveResult(result);
+    return this.finishTick(snapshotVersion);
+  }
+
+  finishTick(snapshotVersion) {
+    this.round += 1;
+    const unchanged = snapshotVersion === this.lastSolvedVersion;
+    this.lastSolvedVersion = snapshotVersion;
+    for (const t of TIER_ORDER) this.priceHistory[t].push(this.prices[t]);
     this.stableRounds = unchanged ? this.stableRounds + 1 : 0;
     if (this.stableRounds >= STABLE_ROUNDS_TO_SETTLE || this.round >= this.maxRounds) {
       this.settle();
@@ -188,7 +210,7 @@ export class Drop {
   // each cell, earlier joiners first).
   settle() {
     if (this.phase === 'settled') return this.results;
-    if (this.lastSolvedVersion !== this.bookVersion || this.assignments.size === 0) this.solve();
+    if (this.assignments.size === 0 && this.bidders.size > 0) this.solve();
 
     const seatPools = new Map(); // "show|tier" -> ordered seats
     const winnersByCell = new Map();

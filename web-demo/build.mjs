@@ -30,7 +30,13 @@ const engine = [
 
 const template = read('web-demo/template.html');
 if (!template.includes('/*__ENGINE__*/')) throw new Error('template is missing the /*__ENGINE__*/ token');
-const fragment = template.replace('/*__ENGINE__*/', engine);
+// The engine lives in its own <script id="engine-code"> so the page can read
+// its text back and boot the same code inside a Web Worker.
+const fragment = template.replace(
+  /<script>\s*\/\*__ENGINE__\*\//,
+  '<script id="engine-code">\n' + engine + '\n</script>\n<script>'
+);
+if (fragment.includes('/*__ENGINE__*/')) throw new Error('engine injection failed');
 
 const head = `<!doctype html>
 <html lang="en">

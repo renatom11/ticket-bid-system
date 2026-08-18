@@ -39,6 +39,7 @@ function startBidding() {
   clearTimeout(timer);
   lobbyEndsAt = null;
   drop.openBidding();
+  drop.tick(); // publish first exact prices immediately
   scheduleTick();
 }
 

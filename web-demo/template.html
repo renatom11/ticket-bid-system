@@ -332,19 +332,62 @@ function beginBidding() {
   clearTimeout(timer);
   lobbyEndsAt = null;
   drop.openBidding();
-  scheduleTick();
   render();
+  doTick(); // first exact prices right away
+}
+
+// The exact solve runs in a Web Worker so the page never freezes; if the
+// environment blocks blob workers, we fall back to solving on-thread.
+let solverWorker = null, workerBroken = false, solving = false;
+function getWorker() {
+  if (workerBroken) return null;
+  if (!solverWorker) {
+    try {
+      const src = document.getElementById('engine-code').textContent +
+        '\nonmessage = (e) => { const r = solveMarket(e.data); postMessage({ prices: [...r.prices], assignments: [...r.assignments] }); };';
+      solverWorker = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
+    } catch {
+      workerBroken = true;
+      return null;
+    }
+  }
+  return solverWorker;
+}
+function solveOffThread(book) {
+  const w = getWorker();
+  if (!w) return null;
+  return new Promise((resolve, reject) => {
+    w.onmessage = (e) => resolve({ prices: new Map(e.data.prices), assignments: new Map(e.data.assignments) });
+    w.onerror = (err) => { workerBroken = true; reject(err); };
+    w.postMessage(book);
+  });
 }
 function scheduleTick() {
   if (drop.phase !== 'bidding') { nextTickAt = null; return; }
   nextTickAt = Date.now() + ROUND_SECONDS * 1000;
   timer = setTimeout(doTick, ROUND_SECONDS * 1000);
 }
-function doTick() {
+async function doTick() {
+  if (solving || drop.phase === 'settled') return;
   clearTimeout(timer);
-  prevPrices = { ...drop.prices };
-  adjustBots(drop);
-  drop.tick();
+  nextTickAt = null;
+  solving = true;
+  try {
+    if (drop.phase === 'lobby') drop.openBidding();
+    prevPrices = { ...drop.prices };
+    adjustBots(drop);
+    const v = drop.bookVersion;
+    let done = false;
+    if (!workerBroken) {
+      try {
+        const result = await solveOffThread(drop.bookInput());
+        if (result) { drop.tickWith(result, v); done = true; }
+      } catch { /* fall through to the sync path */ }
+    }
+    if (!done) drop.tick(); // exact, but on-thread
+  } finally {
+    solving = false;
+  }
   scheduleTick();
   render();
 }
@@ -371,6 +414,7 @@ function renderHeader() {
   pill.className = 'pill ' + drop.phase;
   const cd = $('#countdown');
   if (drop.phase === 'lobby' && lobbyEndsAt) cd.textContent = 'Bidding starts in ' + secs(lobbyEndsAt) + 's — get your filters in';
+  else if (drop.phase === 'bidding' && solving) cd.textContent = 'Round ' + drop.round + ' · computing exact prices…';
   else if (drop.phase === 'bidding' && nextTickAt) cd.textContent = 'Round ' + drop.round + ' · next tick in ' + secs(nextTickAt) + 's';
   else if (drop.phase === 'settled') cd.textContent = 'Settled after ' + drop.round + ' rounds';
   else cd.textContent = 'Press “Start the drop”';

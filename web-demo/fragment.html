@@ -295,7 +295,7 @@
 
 <footer>Everything runs in this page — no server, no accounts, nothing leaves your browser. Refresh to start over.</footer>
 
-<script>
+<script id="engine-code">
 /* ---- built from src/ by web-demo/build.mjs — edit the sources, not this file ---- */
 
 // AMC Lincoln Square style auditorium.
@@ -743,19 +743,27 @@ class Drop {
   openBidding() {
     if (this.phase !== 'lobby') return;
     this.phase = 'bidding';
-    this.solve();
-    this.lastSolvedVersion = this.bookVersion;
   }
 
-  // Exact clearing of the current book.
-  solve() {
-    const active = [...this.bidders.values()].filter((b) => !b.withdrawn);
-    const { prices, assignments } = solveMarket({
+  // The solver's input for the current book — also used by the browser build
+  // to ship the book to a Web Worker.
+  bookInput() {
+    return {
       showings: this.showings,
       tiers: TIERS,
       capacityPerShowing: VENUE.capacityPerShowing,
-      bidders: active,
-    });
+      bidders: [...this.bidders.values()]
+        .filter((b) => !b.withdrawn)
+        .map((b) => ({ id: b.id, showings: b.showings, tierMaxes: b.tierMaxes })),
+    };
+  }
+
+  // Exact clearing of the current book, synchronously.
+  solve() {
+    this.applySolveResult(solveMarket(this.bookInput()));
+  }
+
+  applySolveResult({ prices, assignments }) {
     this.cellPrices = prices;
     this.assignments = assignments;
     for (const t of TIER_ORDER) {
@@ -787,13 +795,27 @@ class Drop {
   tick() {
     if (this.phase === 'lobby') this.openBidding();
     if (this.phase !== 'bidding') return this.summary();
-
-    this.round += 1;
-    const unchanged = this.bookVersion === this.lastSolvedVersion;
+    const snapshotVersion = this.bookVersion;
     this.solve();
-    this.lastSolvedVersion = this.bookVersion;
-    for (const t of TIER_ORDER) this.priceHistory[t].push(this.prices[t]);
+    return this.finishTick(snapshotVersion);
+  }
 
+  // Async variant for the browser: the caller snapshots bookInput() and its
+  // version, solves elsewhere (a Web Worker), then applies the result here.
+  // Edits made while the solve was in flight keep the book "changed" so the
+  // next tick picks them up.
+  tickWith(result, snapshotVersion) {
+    if (this.phase === 'lobby') this.openBidding();
+    if (this.phase !== 'bidding') return this.summary();
+    this.applySolveResult(result);
+    return this.finishTick(snapshotVersion);
+  }
+
+  finishTick(snapshotVersion) {
+    this.round += 1;
+    const unchanged = snapshotVersion === this.lastSolvedVersion;
+    this.lastSolvedVersion = snapshotVersion;
+    for (const t of TIER_ORDER) this.priceHistory[t].push(this.prices[t]);
     this.stableRounds = unchanged ? this.stableRounds + 1 : 0;
     if (this.stableRounds >= STABLE_ROUNDS_TO_SETTLE || this.round >= this.maxRounds) {
       this.settle();
@@ -806,7 +828,7 @@ class Drop {
   // each cell, earlier joiners first).
   settle() {
     if (this.phase === 'settled') return this.results;
-    if (this.lastSolvedVersion !== this.bookVersion || this.assignments.size === 0) this.solve();
+    if (this.assignments.size === 0 && this.bidders.size > 0) this.solve();
 
     const seatPools = new Map(); // "show|tier" -> ordered seats
     const winnersByCell = new Map();
@@ -1161,6 +1183,8 @@ function lognormal(median, sigma, rng) {
   return Math.max(5, Math.round(median * Math.exp(sigma * gaussian(rng))));
 }
 
+</script>
+<script>
 
 /* ---------------- app state + game loop ---------------- */
 
@@ -1196,19 +1220,62 @@ function beginBidding() {
   clearTimeout(timer);
   lobbyEndsAt = null;
   drop.openBidding();
-  scheduleTick();
   render();
+  doTick(); // first exact prices right away
+}
+
+// The exact solve runs in a Web Worker so the page never freezes; if the
+// environment blocks blob workers, we fall back to solving on-thread.
+let solverWorker = null, workerBroken = false, solving = false;
+function getWorker() {
+  if (workerBroken) return null;
+  if (!solverWorker) {
+    try {
+      const src = document.getElementById('engine-code').textContent +
+        '\nonmessage = (e) => { const r = solveMarket(e.data); postMessage({ prices: [...r.prices], assignments: [...r.assignments] }); };';
+      solverWorker = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
+    } catch {
+      workerBroken = true;
+      return null;
+    }
+  }
+  return solverWorker;
+}
+function solveOffThread(book) {
+  const w = getWorker();
+  if (!w) return null;
+  return new Promise((resolve, reject) => {
+    w.onmessage = (e) => resolve({ prices: new Map(e.data.prices), assignments: new Map(e.data.assignments) });
+    w.onerror = (err) => { workerBroken = true; reject(err); };
+    w.postMessage(book);
+  });
 }
 function scheduleTick() {
   if (drop.phase !== 'bidding') { nextTickAt = null; return; }
   nextTickAt = Date.now() + ROUND_SECONDS * 1000;
   timer = setTimeout(doTick, ROUND_SECONDS * 1000);
 }
-function doTick() {
+async function doTick() {
+  if (solving || drop.phase === 'settled') return;
   clearTimeout(timer);
-  prevPrices = { ...drop.prices };
-  adjustBots(drop);
-  drop.tick();
+  nextTickAt = null;
+  solving = true;
+  try {
+    if (drop.phase === 'lobby') drop.openBidding();
+    prevPrices = { ...drop.prices };
+    adjustBots(drop);
+    const v = drop.bookVersion;
+    let done = false;
+    if (!workerBroken) {
+      try {
+        const result = await solveOffThread(drop.bookInput());
+        if (result) { drop.tickWith(result, v); done = true; }
+      } catch { /* fall through to the sync path */ }
+    }
+    if (!done) drop.tick(); // exact, but on-thread
+  } finally {
+    solving = false;
+  }
   scheduleTick();
   render();
 }
@@ -1235,6 +1302,7 @@ function renderHeader() {
   pill.className = 'pill ' + drop.phase;
   const cd = $('#countdown');
   if (drop.phase === 'lobby' && lobbyEndsAt) cd.textContent = 'Bidding starts in ' + secs(lobbyEndsAt) + 's — get your filters in';
+  else if (drop.phase === 'bidding' && solving) cd.textContent = 'Round ' + drop.round + ' · computing exact prices…';
   else if (drop.phase === 'bidding' && nextTickAt) cd.textContent = 'Round ' + drop.round + ' · next tick in ' + secs(nextTickAt) + 's';
   else if (drop.phase === 'settled') cd.textContent = 'Settled after ' + drop.round + ' rounds';
   else cd.textContent = 'Press “Start the drop”';
