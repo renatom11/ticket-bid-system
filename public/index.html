@@ -21,6 +21,14 @@
   <main>
     <section id="tier-board" class="tier-board"></section>
 
+    <div id="pending-bar" class="pending-bar" hidden>
+      <span id="pending-text"></span>
+      <div class="row-actions">
+        <button id="confirm-switch" class="primary">Confirm</button>
+        <button id="cancel-switch">Cancel</button>
+      </div>
+    </div>
+
     <div class="columns">
       <section class="panel">
         <h2>Seat map <span class="muted">— zones are ours, not AMC's</span></h2>
@@ -53,6 +61,9 @@
             </div>
             <p class="muted" id="bump-hint" style="margin:0.35rem 0 0"></p>
           </div>
+          <fieldset id="you-showings">
+            <legend>Showings — <span id="showing-count"></span></legend>
+          </fieldset>
           <fieldset id="you-tiers">
             <legend>Your max per tier (raise them any time before settlement)</legend>
           </fieldset>
@@ -84,6 +95,8 @@
       <div id="results"></div>
     </section>
   </main>
+
+  <div id="money-bar" class="money-bar"></div>
 
   <script src="/app.js"></script>
 </body>

@@ -63,15 +63,37 @@ export class Drop {
     return bidder;
   }
 
-  updateBidder(id, { tierMaxes }) {
+  updateBidder(id, { tierMaxes, showings }) {
     const bidder = this.mustGet(id);
     if (this.phase === 'settled') throw new UserError('Drop already settled');
-    const cleaned = (tierMaxes ?? [])
-      .filter((tm) => TIER_ORDER.includes(tm.tierId) && Number(tm.maxPrice) > 0)
-      .map((tm) => ({ tierId: tm.tierId, maxPrice: Math.floor(Number(tm.maxPrice)) }));
-    if (cleaned.length === 0) throw new UserError('Keep at least one tier, or withdraw instead');
-    bidder.tierMaxes = cleaned;
+    if (tierMaxes !== undefined) {
+      const cleaned = (tierMaxes ?? [])
+        .filter((tm) => TIER_ORDER.includes(tm.tierId) && Number(tm.maxPrice) > 0)
+        .map((tm) => ({ tierId: tm.tierId, maxPrice: Math.floor(Number(tm.maxPrice)) }));
+      if (cleaned.length === 0) throw new UserError('Keep at least one tier, or withdraw instead');
+      bidder.tierMaxes = cleaned;
+    }
+    if (showings !== undefined) {
+      const accepted = (showings ?? []).filter((s) => this.showings.includes(s));
+      if (accepted.length === 0) throw new UserError('Keep at least one showing');
+      bidder.showings = accepted;
+    }
     return bidder;
+  }
+
+  // Money the platform would collect if the drop settled right now: every
+  // pooled bidder pays their target tier's current price.
+  committedTotal() {
+    let total = 0;
+    let bidders = 0;
+    for (const b of this.bidders.values()) {
+      const t = this.targetTier(b);
+      if (t) {
+        total += this.prices[t];
+        bidders += 1;
+      }
+    }
+    return { total, bidders };
   }
 
   withdraw(id) {

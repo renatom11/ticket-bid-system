@@ -59,6 +59,7 @@ function publicState(bidderId) {
   return {
     ...drop.summary(),
     name: drop.name,
+    committed: drop.committedTotal(),
     showings: drop.showings,
     priceHistory: drop.priceHistory,
     bidderCount: [...drop.bidders.values()].filter((b) => !b.withdrawn).length,

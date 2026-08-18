@@ -1,6 +1,8 @@
 let venue = null;
 let tiers = [];
 let state = null;
+let pendingTier = null;
+const FLAT_PRICE = 30;
 let bidderId = sessionStorage.getItem('bidderId');
 
 const $ = (sel) => document.querySelector(sel);
@@ -42,9 +44,11 @@ async function refresh() {
   }
   renderHeader();
   renderTierBoard();
+  renderPendingBar();
   renderSeatMap();
   renderYou();
   renderResults();
+  renderMoneyBar();
 }
 
 /* ---------- header ---------- */
@@ -96,7 +100,7 @@ function renderTierBoard() {
       footer = `<div class="switch-hint">Click to ${verb} — sets your bid to $${price}</div>`;
     }
     const card = document.createElement('div');
-    card.className = `tier-card ${tier.id}${isCurrent ? ' current' : ''}${clickable ? ' clickable' : ''}`;
+    card.className = `tier-card ${tier.id}${isCurrent ? ' current' : ''}${clickable ? ' clickable' : ''}${tier.id === pendingTier ? ' pending' : ''}`;
     card.dataset.tier = tier.id;
     card.innerHTML = `
       <div>${tier.name}</div>
@@ -109,9 +113,9 @@ function renderTierBoard() {
   }
 }
 
-// Clicking a tier card = "put me in this pool at its current price": the
-// clicked tier's max becomes exactly its clock price, better tiers are
-// released, and worse tiers stay as fallbacks.
+// Clicking a tier card stages a switch; Confirm applies it: the clicked
+// tier's max becomes exactly its clock price, better tiers are released,
+// and worse tiers stay as fallbacks.
 async function switchToTier(tierId) {
   const you = state?.you;
   if (!you || you.withdrawn || state.phase === 'settled') return;
@@ -120,11 +124,46 @@ async function switchToTier(tierId) {
   const tierMaxes = [{ tierId, maxPrice: state.prices[tierId] }, ...fallbacks];
   try {
     await api('/api/update', { bidderId, tierMaxes });
+    pendingTier = null;
     $('#you-tiers').dataset.built = '';
     await refresh();
   } catch (e) {
     $('#you-error').textContent = e.message;
   }
+}
+
+const shortName = (tierId) => tierById(tierId).name.split(' ·')[0];
+
+function renderPendingBar() {
+  const bar = $('#pending-bar');
+  const you = state.you;
+  const editable = you && !you.withdrawn && state.phase !== 'settled';
+  if (!editable) pendingTier = null;
+  if (pendingTier && you && you.targetTier === pendingTier) pendingTier = null;
+  if (!pendingTier) { bar.hidden = true; return; }
+  const idx = tiers.findIndex((t) => t.id === pendingTier);
+  const released = you.tierMaxes.filter((tm) => tiers.findIndex((t) => t.id === tm.tierId) < idx).map((tm) => shortName(tm.tierId));
+  const kept = you.tierMaxes.filter((tm) => tiers.findIndex((t) => t.id === tm.tierId) > idx).map((tm) => shortName(tm.tierId));
+  $('#pending-text').innerHTML =
+    `Switch to <b>${tierById(pendingTier).name}</b> at <b>$${state.prices[pendingTier]}</b>?` +
+    (released.length ? ` Releases ${released.join(' and ')}.` : '') +
+    (kept.length ? ` Keeps ${kept.join(' and ')} as fallback.` : '');
+  bar.hidden = false;
+}
+
+function renderMoneyBar() {
+  let total, count, label;
+  if (state.phase === 'settled' && state.results) {
+    total = state.results.revenue; count = state.results.winners; label = 'Total spent';
+  } else {
+    total = state.committed?.total ?? 0; count = state.committed?.bidders ?? 0; label = 'Committed right now';
+  }
+  const flat = count * FLAT_PRICE;
+  const diff = total - flat;
+  $('#money-bar').innerHTML =
+    `<span><span class="mlabel">${label}:</span> <b>$${total.toLocaleString()}</b> <span class="mlabel">across ${count.toLocaleString()} tickets</span></span>` +
+    `<span><span class="mlabel">Same tickets flat at $${FLAT_PRICE}:</span> <b>$${flat.toLocaleString()}</b></span>` +
+    `<span><span class="mlabel">Auction vs flat:</span> <b class="${diff >= 0 ? 'lift-up' : 'lift-down'}">${diff >= 0 ? '+' : '−'}$${Math.abs(diff).toLocaleString()}</b></span>`;
 }
 
 function deltaHtml(d) {
@@ -243,6 +282,7 @@ function renderYou() {
   if (you.withdrawn) {
     st.innerHTML = `<div class="you-status-card">You dropped out. You won't be charged.</div>`;
     $('#you-tiers').hidden = true;
+    $('#you-showings').hidden = true;
     $('#update-btn').hidden = true;
     $('#withdraw-btn').hidden = true;
     $('#bump-row').hidden = true;
@@ -250,6 +290,7 @@ function renderYou() {
   }
   if (state.phase === 'settled') {
     $('#you-tiers').hidden = true;
+    $('#you-showings').hidden = true;
     $('#update-btn').hidden = true;
     $('#withdraw-btn').hidden = true;
     $('#bump-row').hidden = true;
@@ -271,6 +312,21 @@ function renderYou() {
         ? `You're pooled in <b>${target.name}</b> at the current price of <b>$${state.prices[target.id]}</b>. If it settles here, that's what you pay — guaranteed seat.`
         : `⚠️ Every tier you accepted is priced above your max. You're out unless prices fall or you raise a max.`
     }</div>`;
+
+  // showings editor
+  const sf = $('#you-showings');
+  sf.hidden = false;
+  if (sf.dataset.built !== you.id) {
+    sf.dataset.built = you.id;
+    sf.querySelectorAll('.check-row').forEach((n) => n.remove());
+    for (const s of state.showings) {
+      sf.insertAdjacentHTML(
+        'beforeend',
+        `<label class="check-row"><input type="checkbox" name="yshowing" value="${s}" ${you.showings.includes(s) ? 'checked' : ''}> ${s}</label>`
+      );
+    }
+  }
+  $('#showing-count').textContent = `you're bidding on ${you.showings.length} of ${state.showings.length}`;
 
   // maxes editor (don't rebuild while user is typing in it)
   const tf = $('#you-tiers');
@@ -368,7 +424,35 @@ function wireButtons() {
   $('#join-btn').addEventListener('click', join);
   $('#tier-board').addEventListener('click', (e) => {
     const card = e.target.closest('.tier-card.clickable');
-    if (card) switchToTier(card.dataset.tier);
+    if (card) {
+      pendingTier = card.dataset.tier;
+      renderTierBoard();
+      renderPendingBar();
+    }
+  });
+  $('#confirm-switch').addEventListener('click', () => { if (pendingTier) switchToTier(pendingTier); });
+  $('#cancel-switch').addEventListener('click', () => {
+    pendingTier = null;
+    renderTierBoard();
+    renderPendingBar();
+  });
+  $('#you-showings').addEventListener('change', async () => {
+    const you = state?.you;
+    if (!you || you.withdrawn || state.phase === 'settled') return;
+    const sel = [...document.querySelectorAll('input[name="yshowing"]:checked')].map((i) => i.value);
+    if (sel.length === 0) {
+      $('#you-error').textContent = 'Keep at least one showing';
+      $('#you-showings').dataset.built = '';
+      renderYou();
+      return;
+    }
+    $('#you-error').textContent = '';
+    try {
+      await api('/api/update', { bidderId, showings: sel });
+      await refresh();
+    } catch (e) {
+      $('#you-error').textContent = e.message;
+    }
   });
   document.querySelectorAll('[data-bump]').forEach((btn) => {
     btn.addEventListener('click', async () => {

@@ -77,6 +77,25 @@ main { padding: 1rem 1.5rem 3rem; max-width: 1200px; margin: 0 auto; }
 .tier-card.clickable { cursor: pointer; }
 .tier-card.clickable:hover { outline: 1px solid var(--muted); outline-offset: 1px; }
 .tier-card.current { outline: 2px solid var(--text); outline-offset: 1px; }
+.tier-card.pending { outline: 2px dashed var(--text); outline-offset: 1px; }
+.pending-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;
+  background: var(--panel); border: 1px dashed var(--text); border-radius: 10px;
+  padding: 0.7rem 1rem; margin: 0 0 1rem; font-size: 0.9rem;
+}
+.pending-bar .row-actions { margin-top: 0; }
+.pending-bar[hidden] { display: none; }
+.money-bar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+  display: flex; justify-content: center; gap: 2rem; flex-wrap: wrap;
+  background: var(--panel); border-top: 1px solid #2c2f3a;
+  padding: 0.55rem 1rem; font-size: 0.85rem;
+}
+.money-bar b { font-variant-numeric: tabular-nums; }
+.money-bar .lift-up { color: var(--t1); }
+.money-bar .lift-down { color: var(--t4); }
+.money-bar .mlabel { color: var(--muted); }
+body { padding-bottom: 3.2rem; }
 .you-here {
   display: inline-block; margin-top: 0.35rem; padding: 0.1rem 0.5rem; border-radius: 999px;
   background: var(--text); color: var(--bg);

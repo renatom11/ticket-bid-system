@@ -101,6 +101,25 @@
   .tier-card.clickable { cursor: pointer; }
   .tier-card.clickable:hover { outline: 1px solid var(--muted); outline-offset: 1px; }
   .tier-card.current { outline: 2px solid var(--ivory); outline-offset: 1px; }
+  .tier-card.pending { outline: 2px dashed var(--ivory); outline-offset: 1px; }
+  .pending-bar {
+    display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;
+    background: var(--panel); border: 1px dashed var(--ivory); border-radius: 10px;
+    padding: 0.7rem 1rem; margin: -0.2rem 0 1rem; font-size: 0.9rem;
+  }
+  .pending-bar .row-actions { margin-top: 0; }
+  .pending-bar[hidden] { display: none; }
+  .money-bar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+    display: flex; justify-content: center; gap: 2rem; flex-wrap: wrap;
+    background: var(--panel); border-top: 1px solid var(--line);
+    padding: 0.55rem 1rem; font-size: 0.85rem;
+  }
+  .money-bar b { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .money-bar .lift-up { color: var(--t1); }
+  .money-bar .lift-down { color: var(--t4); }
+  .money-bar .mlabel { color: var(--muted); }
+  body { padding-bottom: 3.2rem; }
   .you-here {
     display: inline-block; margin-top: 0.35rem; padding: 0.1rem 0.5rem; border-radius: 999px;
     background: var(--ivory); color: #221e26;
@@ -190,6 +209,14 @@
 <main>
   <section id="tier-board" class="tier-board" aria-live="off"></section>
 
+  <div id="pending-bar" class="pending-bar" hidden>
+    <span id="pending-text"></span>
+    <div class="row-actions">
+      <button id="confirm-switch" class="primary">Confirm</button>
+      <button id="cancel-switch">Cancel</button>
+    </div>
+  </div>
+
   <div class="columns">
     <section class="panel">
       <h2>Seat map <span class="hint">— five simultaneous showings of this room; zones are ours</span></h2>
@@ -218,6 +245,7 @@
           </div>
           <p class="hint" id="bump-hint" style="margin:0.35rem 0 0"></p>
         </div>
+        <fieldset id="you-showings"><legend>Showings — <span id="showing-count"></span></legend></fieldset>
         <fieldset id="you-tiers"><legend>Your max per tier — raise them any time before settlement</legend></fieldset>
         <div class="row-actions">
           <button id="update-btn" class="primary">Update maxes</button>
@@ -248,6 +276,8 @@
 </main>
 
 <footer>Everything runs in this page — no server, no accounts, nothing leaves your browser. Refresh to start over.</footer>
+
+<div id="money-bar" class="money-bar"></div>
 
 <script>
 /* ---------------- venue: Lincoln Square style room, our own zones ---------------- */
@@ -355,6 +385,15 @@ class Drop {
       if (t) d[t] += 1;
     }
     return d;
+  }
+  // Money the platform would collect if the drop settled right now.
+  committedTotal() {
+    let total = 0, bidders = 0;
+    for (const b of this.bidders.values()) {
+      const t = this.targetTier(b);
+      if (t) { total += this.prices[t]; bidders += 1; }
+    }
+    return { total, bidders };
   }
   openBidding() {
     if (this.phase !== 'lobby') return;
@@ -502,8 +541,8 @@ function addBots(drop, count) {
 
 /* ---------------- app state + game loop ---------------- */
 
-const LOBBY_SECONDS = 15, ROUND_SECONDS = 8, SEED_BOTS = 4000;
-let drop, youId, lobbyEndsAt, nextTickAt, timer, prevPrices;
+const LOBBY_SECONDS = 15, ROUND_SECONDS = 8, SEED_BOTS = 4000, FLAT_PRICE = 30;
+let drop, youId, lobbyEndsAt, nextTickAt, timer, prevPrices, pendingTier;
 
 const $ = (s) => document.querySelector(s);
 const secs = (t) => Math.max(0, Math.ceil((t - Date.now()) / 1000));
@@ -511,7 +550,7 @@ const suggestedMax = (id) => ({ t1: 80, t2: 55, t3: 35, t4: 20 })[id] ?? 30;
 
 function reset() {
   clearTimeout(timer);
-  timer = null; lobbyEndsAt = null; nextTickAt = null; youId = null;
+  timer = null; lobbyEndsAt = null; nextTickAt = null; youId = null; pendingTier = null;
   drop = new Drop({});
   prevPrices = { ...drop.prices };
   addBots(drop, SEED_BOTS);
@@ -554,9 +593,11 @@ function render() {
   const you = youId ? drop.bidders.get(youId) : null;
   renderHeader();
   renderTierBoard(you);
+  renderPendingBar(you);
   renderSeatMap(you);
   renderYou(you);
   renderResults();
+  renderMoneyBar();
   $('#bot-count').textContent = [...drop.bidders.values()].filter((b) => !b.withdrawn && b.id !== youId).length;
   $('#start-btn').disabled = drop.phase !== 'lobby' || !!lobbyEndsAt;
 }
@@ -596,7 +637,8 @@ function renderTierBoard(you) {
       footer = '<div class="switch-hint">Click to ' + verb + ' — sets your bid to $' + price + '</div>';
     }
     const card = document.createElement('div');
-    card.className = 'tier-card ' + tier.id + (isCurrent ? ' current' : '') + (clickable ? ' clickable' : '');
+    card.className = 'tier-card ' + tier.id + (isCurrent ? ' current' : '') + (clickable ? ' clickable' : '') +
+      (tier.id === pendingTier ? ' pending' : '');
     card.dataset.tier = tier.id;
     card.innerHTML =
       '<div class="tname">' + tier.name + '</div>' +
@@ -609,17 +651,53 @@ function renderTierBoard(you) {
   }
 }
 
-// Clicking a tier card = "put me in this pool at its current price": the
-// clicked tier's max becomes exactly its clock price, better tiers are
-// released, and worse tiers stay as fallbacks.
+// Clicking a tier card stages a switch; Confirm applies it: the clicked
+// tier's max becomes exactly its clock price, better tiers are released,
+// and worse tiers stay as fallbacks.
 function switchToTier(tierId) {
   const you = youId && drop.bidders.get(youId);
   if (!you || you.withdrawn || drop.phase === 'settled') return;
   const idx = TIER_ORDER.indexOf(tierId);
   const fallbacks = you.tierMaxes.filter((tm) => TIER_ORDER.indexOf(tm.tierId) > idx);
   you.tierMaxes = [{ tierId, maxPrice: drop.prices[tierId] }, ...fallbacks];
+  pendingTier = null;
   $('#you-tiers').dataset.built = '';
   render();
+}
+
+const shortName = (tierId) => tierById(tierId).name.split(' ·')[0];
+
+function renderPendingBar(you) {
+  const bar = $('#pending-bar');
+  const editable = you && !you.withdrawn && drop.phase !== 'settled';
+  if (!editable) pendingTier = null;
+  if (pendingTier && drop.targetTier(you) === pendingTier) pendingTier = null;
+  if (!pendingTier) { bar.hidden = true; return; }
+  const idx = TIER_ORDER.indexOf(pendingTier);
+  const released = you.tierMaxes.filter((tm) => TIER_ORDER.indexOf(tm.tierId) < idx).map((tm) => shortName(tm.tierId));
+  const kept = you.tierMaxes.filter((tm) => TIER_ORDER.indexOf(tm.tierId) > idx).map((tm) => shortName(tm.tierId));
+  $('#pending-text').innerHTML =
+    'Switch to <b>' + tierById(pendingTier).name + '</b> at <b class="mono">$' + drop.prices[pendingTier] + '</b>?' +
+    (released.length ? ' Releases ' + released.join(' and ') + '.' : '') +
+    (kept.length ? ' Keeps ' + kept.join(' and ') + ' as fallback.' : '');
+  bar.hidden = false;
+}
+
+function renderMoneyBar() {
+  let total, count, label;
+  if (drop.phase === 'settled' && drop.results) {
+    total = drop.results.revenue; count = drop.results.winners; label = 'Total spent';
+  } else {
+    const c = drop.committedTotal();
+    total = c.total; count = c.bidders; label = 'Committed right now';
+  }
+  const flat = count * FLAT_PRICE;
+  const diff = total - flat;
+  $('#money-bar').innerHTML =
+    '<span><span class="mlabel">' + label + ':</span> <b>$' + total.toLocaleString() + '</b> <span class="mlabel">across ' + count.toLocaleString() + ' tickets</span></span>' +
+    '<span><span class="mlabel">Same tickets flat at $' + FLAT_PRICE + ':</span> <b>$' + flat.toLocaleString() + '</b></span>' +
+    '<span><span class="mlabel">Auction vs flat:</span> <b class="' + (diff >= 0 ? 'lift-up' : 'lift-down') + '">' +
+    (diff >= 0 ? '+' : '−') + '$' + Math.abs(diff).toLocaleString() + '</b></span>';
 }
 
 function deltaHtml(d) {
@@ -713,10 +791,22 @@ function renderYou(you) {
   const st = $('#you-status');
   const editable = !you.withdrawn && drop.phase !== 'settled';
   $('#you-tiers').hidden = !editable;
+  $('#you-showings').hidden = !editable;
   $('#update-btn').hidden = !editable;
   $('#withdraw-btn').hidden = !editable;
   $('#bump-row').hidden = !editable;
   if (editable) {
+    const sf = $('#you-showings');
+    if (sf.dataset.built !== you.id) {
+      sf.dataset.built = you.id;
+      sf.querySelectorAll('.check-row').forEach((n) => n.remove());
+      for (const s of drop.showings) {
+        sf.insertAdjacentHTML('beforeend',
+          '<label class="check-row"><input type="checkbox" name="yshowing" value="' + s + '"' +
+          (you.showings.includes(s) ? ' checked' : '') + '> ' + s + '</label>');
+      }
+    }
+    $('#showing-count').textContent = 'you’re bidding on ' + you.showings.length + ' of ' + drop.showings.length;
     const bumpTier = drop.targetTier(you) ?? you.tierMaxes[0].tierId;
     const tm = you.tierMaxes.find((x) => x.tierId === bumpTier);
     $('#bump-hint').textContent = 'Raises your ' + tierById(bumpTier).name + ' max (now $' + tm.maxPrice + ')';
@@ -809,7 +899,23 @@ $('#withdraw-btn').addEventListener('click', () => {
 });
 $('#tier-board').addEventListener('click', (e) => {
   const card = e.target.closest('.tier-card.clickable');
-  if (card) switchToTier(card.dataset.tier);
+  if (card) { pendingTier = card.dataset.tier; render(); }
+});
+$('#confirm-switch').addEventListener('click', () => { if (pendingTier) switchToTier(pendingTier); });
+$('#cancel-switch').addEventListener('click', () => { pendingTier = null; render(); });
+$('#you-showings').addEventListener('change', () => {
+  const you = youId && drop.bidders.get(youId);
+  if (!you || you.withdrawn || drop.phase === 'settled') return;
+  const sel = [...document.querySelectorAll('input[name="yshowing"]:checked')].map((i) => i.value);
+  if (sel.length === 0) {
+    $('#you-error').textContent = 'Keep at least one showing';
+    $('#you-showings').dataset.built = '';
+    render();
+    return;
+  }
+  $('#you-error').textContent = '';
+  you.showings = drop.showings.filter((s) => sel.includes(s));
+  render();
 });
 document.querySelectorAll('[data-bump]').forEach((btn) => btn.addEventListener('click', () => {
   const you = youId && drop.bidders.get(youId);

@@ -143,6 +143,18 @@ test('forced settle rations oversubscribed tiers by join order and cascades the 
   assert.ok(inT1.every((b) => b.joinedAt < supply));
 });
 
+test('bidders can update their showings mid-drop, and committedTotal tracks the pool', () => {
+  const drop = makeDrop();
+  const b = drop.addBidder({ name: 'b', showings: ['S1'], tierMaxes: [{ tierId: 't2', maxPrice: 40 }] });
+  drop.updateBidder(b.id, { showings: ['S1', 'S2'] });
+  assert.deepEqual(b.showings, ['S1', 'S2']);
+  assert.throws(() => drop.updateBidder(b.id, { showings: [] }), /at least one showing/);
+  assert.deepEqual(b.tierMaxes, [{ tierId: 't2', maxPrice: 40 }], 'tierMaxes untouched by showings update');
+  const c = drop.committedTotal();
+  assert.equal(c.bidders, 1);
+  assert.equal(c.total, drop.prices.t2);
+});
+
 test('crowd spans socioeconomic backgrounds, including bidders willing to pay hundreds', () => {
   const drop = makeDrop();
   addBots(drop, 2000, mulberry32(3));
