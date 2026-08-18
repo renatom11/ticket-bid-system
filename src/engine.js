@@ -50,7 +50,7 @@ export class Drop {
     const accepted = (showings ?? []).filter((s) => this.showings.includes(s));
     if (accepted.length === 0) throw new UserError('Pick at least one showing');
     const cleaned = (tierMaxes ?? [])
-      .filter((tm) => TIER_ORDER.includes(tm.tierId) && Number(tm.maxPrice) > 0)
+      .filter((tm) => TIER_ORDER.includes(tm.tierId) && Number(tm.maxPrice) >= 0)
       .map((tm) => ({ tierId: tm.tierId, maxPrice: Math.floor(Number(tm.maxPrice)) }));
     if (cleaned.length === 0) throw new UserError('Pick at least one tier with a max price');
     const id = `b${this.nextBidderId++}`;
@@ -74,7 +74,7 @@ export class Drop {
     if (this.phase === 'settled') throw new UserError('Drop already settled');
     if (tierMaxes !== undefined) {
       const cleaned = (tierMaxes ?? [])
-        .filter((tm) => TIER_ORDER.includes(tm.tierId) && Number(tm.maxPrice) > 0)
+        .filter((tm) => TIER_ORDER.includes(tm.tierId) && Number(tm.maxPrice) >= 0)
         .map((tm) => ({ tierId: tm.tierId, maxPrice: Math.floor(Number(tm.maxPrice)) }));
       if (cleaned.length === 0) throw new UserError('Keep at least one tier, or withdraw instead');
       bidder.tierMaxes = cleaned;
@@ -128,12 +128,15 @@ export class Drop {
   }
 
   // The solver's input for the current book — also used by the browser build
-  // to ship the book to a Web Worker.
+  // to ship the book to a Web Worker. Last tick's prices ride along as a
+  // screening hint (the solver verifies against the real result, so this
+  // never changes the answer, only the speed).
   bookInput() {
     return {
       showings: this.showings,
       tiers: TIERS,
       capacityPerShowing: VENUE.capacityPerShowing,
+      hint: this.cellPrices.size ? [...this.cellPrices] : undefined,
       bidders: [...this.bidders.values()]
         .filter((b) => !b.withdrawn)
         .map((b) => ({ id: b.id, showings: b.showings, tierMaxes: b.tierMaxes })),

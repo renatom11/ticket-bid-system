@@ -259,7 +259,7 @@
         <fieldset id="you-tiers"><legend>Your max per tier — adjust any time before settlement</legend></fieldset>
         <div class="row-actions">
           <button id="update-btn" class="primary">Update maxes</button>
-          <button id="withdraw-btn" class="danger">Drop out</button>
+          <button id="withdraw-btn" class="danger">Drop out — zero my bids</button>
         </div>
         <p id="you-error" class="error"></p>
       </div>
@@ -422,7 +422,13 @@ function renderHeader() {
 
 function renderTierBoard(you) {
   const board = $('#tier-board');
-  board.innerHTML = '';
+  // Cards are persistent DOM nodes (only their contents update): rebuilding
+  // them every render used to eat clicks that started before a rebuild.
+  const sig = TIERS.map((t) => t.id).join(',');
+  if (board.dataset.sig !== sig) {
+    board.dataset.sig = sig;
+    board.innerHTML = TIERS.map((t) => '<div class="tier-card ' + t.id + '" data-tier="' + t.id + '"></div>').join('');
+  }
   const editable = you && !you.withdrawn && drop.phase !== 'settled';
   const targetId = editable ? drop.targetTier(you) : you && you.assignment ? you.assignment.tierId : null;
   const targetIdx = targetId ? TIER_ORDER.indexOf(targetId) : -1;
@@ -443,10 +449,9 @@ function renderTierBoard(you) {
       const verb = targetIdx === -1 ? 'jump in' : idx < targetIdx ? 'move up' : 'drop down';
       footer = '<div class="switch-hint">Click to ' + verb + ' — sets your bid to $' + price + '</div>';
     }
-    const card = document.createElement('div');
+    const card = board.children[TIERS.indexOf(tier)];
     card.className = 'tier-card ' + tier.id + (isCurrent ? ' current' : '') + (clickable ? ' clickable' : '') +
       (tier.id === pendingTier ? ' pending' : '');
-    card.dataset.tier = tier.id;
     card.innerHTML =
       '<div class="tname">' + tier.name + '</div>' +
       '<div><span class="price' + (price !== prev ? ' price-flash' : '') + '">$' + price + '</span>' +
@@ -455,7 +460,6 @@ function renderTierBoard(you) {
       '<div class="demand-bar"><div style="width:' + Math.min(1, d / s) * 100 + '%"></div></div>' +
       sparkline(hist) +
       footer;
-    board.appendChild(card);
   }
 }
 
@@ -554,7 +558,7 @@ function buildJoinForm() {
       '<div class="tier-row">' +
       '<label class="trow-name"><input type="checkbox" name="tier" value="' + t.id + '"' + (t.id !== 't5' ? ' checked' : '') + '>' +
       '<span class="tier-dot" style="background:var(--' + t.id + ')"></span>' + t.name + '</label>' +
-      '<span class="trow-max">max $ <input type="number" name="max-' + t.id + '" min="1" value="' + suggestedMax(t.id) + '"></span>' +
+      '<span class="trow-max">max $ <input type="number" name="max-' + t.id + '" min="0" value="' + suggestedMax(t.id) + '"></span>' +
       '</div>');
   }
 }
@@ -644,7 +648,7 @@ function renderYou(you) {
         '<div class="tier-row">' +
         '<label class="trow-name"><input type="checkbox" name="ytier" value="' + t.id + '"' + (tm ? ' checked' : '') + '>' +
         '<span class="tier-dot" style="background:var(--' + t.id + ')"></span>' + t.name + '</label>' +
-        '<span class="trow-max">max $ <input type="number" name="ymax-' + t.id + '" min="1" value="' + (tm ? tm.maxPrice : suggestedMax(t.id)) + '"></span>' +
+        '<span class="trow-max">max $ <input type="number" name="ymax-' + t.id + '" min="0" value="' + (tm ? tm.maxPrice : suggestedMax(t.id)) + '"></span>' +
         '<span class="steppers">' + ['-100', '-10', '-1', '+1', '+10', '+100'].map((s) =>
           '<button type="button" class="step" data-step="' + s + '" data-tier="' + t.id + '">' + s + '</button>'
         ).join('') + '</span>' +
@@ -656,7 +660,7 @@ function renderYou(you) {
 function updateMaxes() {
   $('#you-error').textContent = '';
   const you = drop.bidders.get(youId);
-  const cleaned = readTierMaxes('y').filter((tm) => tm.maxPrice > 0);
+  const cleaned = readTierMaxes('y').filter((tm) => tm.maxPrice >= 0);
   if (cleaned.length === 0) {
     $('#you-error').textContent = 'Keep at least one tier, or drop out instead';
     return;
@@ -701,8 +705,15 @@ function renderResults() {
 $('#join-btn').addEventListener('click', join);
 $('#update-btn').addEventListener('click', updateMaxes);
 $('#withdraw-btn').addEventListener('click', () => {
-  const you = drop.bidders.get(youId);
-  if (you && drop.phase !== 'settled') { you.withdrawn = true; render(); }
+  const you = youId && drop.bidders.get(youId);
+  if (!you || drop.phase === 'settled') return;
+  for (const tm of you.tierMaxes) {
+    tm.maxPrice = 0;
+    const input = document.querySelector('input[name="ymax-' + tm.tierId + '"]');
+    if (input) input.value = 0;
+  }
+  drop.touch();
+  render();
 });
 $('#tier-board').addEventListener('click', (e) => {
   const card = e.target.closest('.tier-card.clickable');
@@ -735,7 +746,7 @@ $('#you-tiers').addEventListener('click', (e) => {
   if (!you || you.withdrawn || drop.phase === 'settled') return;
   const tierId = btn.dataset.tier;
   const input = document.querySelector('input[name="ymax-' + tierId + '"]');
-  input.value = Math.max(1, Number(input.value || 0) + Number(btn.dataset.step));
+  input.value = Math.max(0, Number(input.value || 0) + Number(btn.dataset.step));
   if (Number(btn.dataset.step) > 0) {
     document.querySelector('input[name="ytier"][value="' + tierId + '"]').checked = true;
   }

@@ -5,25 +5,31 @@
 // tier. Output: a maximum-surplus assignment plus the buyer-optimal (minimal)
 // clearing price for every (show, tier) cell, satisfying:
 //   - no cell is filled over capacity,
-//   - every assigned bidder is in a best cell for them at these prices
-//     (utility >= 0 and >= utility at every other cell they accept),
+//   - every assigned bidder is in a best cell for them at these prices,
 //   - every unassigned bidder has utility <= 0 at every cell they accept,
 //   - cells with unsold seats price at their floor,
 //   - no price can be lowered without breaking one of the above.
 //
 // Algorithm: incremental successive-shortest-path assignment over the cell
-// graph (each insertion finds the maximum-gain augmenting chain of
-// seat-swaps via SPFA — safe with the negative edge weights this graph has,
-// and terminating because an optimal assignment admits no negative cycle),
-// with a virtual "stay out" column so evictions and non-participation are
-// ordinary path exits. The minimal price vector is then extracted with a
-// difference-constraint closure over the optimal assignment.
+// graph. Two structural optimizations keep it fast without giving up
+// exactness:
+//   1. Exchange-edge caching: for every ordered cell pair (c -> k) a lazy
+//      min-heap tracks the cheapest occupant swap, so a path search touches
+//      O(cells^2) edges instead of scanning every occupant's options.
+//   2. Hint screening: bidders who could not afford any of their cells at
+//      the previous solve's prices (the optional `hint`) are deferred; after
+//      solving the active set, deferred bidders are re-checked against the
+//      *resulting* prices and inserted if they can now afford in, repeating
+//      until none can — which is exactly the equilibrium condition, so the
+//      result is identical to solving everyone.
+// The minimal price vector is then extracted with a difference-constraint
+// closure over the optimal assignment.
 
-export function solveMarket({ showings, tiers, capacityPerShowing, bidders }) {
+export function solveMarket({ showings, tiers, capacityPerShowing, bidders, hint }) {
   const nT = tiers.length;
   const nS = showings.length;
   const nC = nS * nT; // cell index = showIdx * nT + tierIdx
-  const OUT = nC; // virtual "stay out" column, dual fixed at 0
+  const OUT = nC; // virtual "stay out" column
   const floors = new Float64Array(nC);
   const cap = new Int32Array(nC);
   const tierIdx = new Map(tiers.map((t, i) => [t.id, i]));
@@ -34,6 +40,7 @@ export function solveMarket({ showings, tiers, capacityPerShowing, bidders }) {
       cap[si * nT + ti] = capacityPerShowing[tiers[ti].id];
     }
   }
+  const cellKey = (c) => `${showings[Math.floor(c / nT)]}|${tiers[c % nT].id}`;
 
   // Bidder records. Adjusted value at a cell = stated max - floor (seller
   // reserve); a bidder is only ever seated at non-negative adjusted surplus.
@@ -56,12 +63,67 @@ export function solveMarket({ showings, tiers, capacityPerShowing, bidders }) {
 
   const assigned = Array.from({ length: nC }, () => []);
 
+  // --- exchange-edge cache ---
+  // pairHeaps[c*nC+k]: min-heap of [swapCost, occupant, ] for moving some
+  // occupant of c to k. evictHeaps[c]: min-heap of [value, occupant] for
+  // pushing an occupant of c out entirely. Entries go stale when occupants
+  // move; they are validated (occupant.cell === c) lazily on peek.
+  const pairHeaps = new Map();
+  const neighbors = Array.from({ length: nC }, () => new Set());
+  const evictHeaps = Array.from({ length: nC }, () => []);
+
+  function heapPush(h, item) {
+    h.push(item);
+    let i = h.length - 1;
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (h[p][0] <= h[i][0]) break;
+      [h[p], h[i]] = [h[i], h[p]];
+      i = p;
+    }
+  }
+  function heapPopTop(h) {
+    const last = h.pop();
+    if (h.length) {
+      h[0] = last;
+      let i = 0;
+      for (;;) {
+        const l = 2 * i + 1;
+        const r = 2 * i + 2;
+        let m = i;
+        if (l < h.length && h[l][0] < h[m][0]) m = l;
+        if (r < h.length && h[r][0] < h[m][0]) m = r;
+        if (m === i) break;
+        [h[m], h[i]] = [h[i], h[m]];
+        i = m;
+      }
+    }
+  }
+  function topValid(h, c) {
+    while (h.length) {
+      if (h[0][1].cell === c) return h[0];
+      heapPopTop(h);
+    }
+    return null;
+  }
+  // Register x as an occupant of cell c (x.cell and x.aval already set).
+  function pushOccupant(x, c) {
+    for (let i = 0; i < x.accCells.length; i++) {
+      const k = x.accCells[i];
+      if (k === c) continue;
+      const key = c * nC + k;
+      let h = pairHeaps.get(key);
+      if (!h) {
+        h = [];
+        pairHeaps.set(key, h);
+        neighbors[c].add(k);
+      }
+      heapPush(h, [x.aval - x.accVals[i], x]);
+    }
+    heapPush(evictHeaps[c], [x.aval, x]);
+  }
+
   // --- one row insertion: max-gain augmenting chain via SPFA ---
-  // Costs minimize -gain. Entry into cell c costs -value; moving occupant x
-  // from c to k costs (val_x@c - val_x@k); evicting x costs +val_x@c. The
-  // best exit is a cell with free capacity (cost +0) or OUT. Edges can be
-  // negative but the graph has no negative cycle while the current
-  // assignment is optimal, so SPFA terminates.
   const dist = new Float64Array(nC + 1);
   const inQueue = new Uint8Array(nC + 1);
   const parFrom = new Int32Array(nC + 1);
@@ -95,31 +157,29 @@ export function solveMarket({ showings, tiers, capacityPerShowing, bidders }) {
     while (qHead < queue.length) {
       const c = queue[qHead++];
       inQueue[c] = 0;
-      if (assigned[c].length < cap[c]) continue; // free capacity: an exit, no need to push through
+      if (assigned[c].length < cap[c]) continue; // free capacity: an exit
       const d = dist[c];
-      const occ = assigned[c];
-      for (let oi = 0; oi < occ.length; oi++) {
-        const x = occ[oi];
-        const base = d + x.aval;
-        for (let i = 0; i < x.accCells.length; i++) {
-          const k = x.accCells[i];
-          if (k === c) continue;
-          const nd = base - x.accVals[i];
-          if (nd < dist[k] - 1e-9) {
-            dist[k] = nd;
-            parFrom[k] = c;
-            parBidder[k] = x;
-            if (!inQueue[k]) {
-              inQueue[k] = 1;
-              queue.push(k);
-            }
+      for (const k of neighbors[c]) {
+        const t = topValid(pairHeaps.get(c * nC + k), c);
+        if (!t) continue;
+        const nd = d + t[0];
+        if (nd < dist[k] - 1e-9) {
+          dist[k] = nd;
+          parFrom[k] = c;
+          parBidder[k] = t[1];
+          if (!inQueue[k]) {
+            inQueue[k] = 1;
+            queue.push(k);
           }
         }
-        // ...or evict x entirely
-        if (base < dist[OUT] - 1e-9) {
-          dist[OUT] = base;
+      }
+      const ev = topValid(evictHeaps[c], c);
+      if (ev) {
+        const nd = d + ev[0] + 1e-7;
+        if (nd < dist[OUT] - 1e-9) {
+          dist[OUT] = nd;
           parFrom[OUT] = c;
-          parBidder[OUT] = x;
+          parBidder[OUT] = ev[1];
         }
       }
     }
@@ -134,14 +194,12 @@ export function solveMarket({ showings, tiers, capacityPerShowing, bidders }) {
       }
     }
     if (dist[OUT] < best - 1e-9) {
-      // strictly better via eviction (never augment zero-gain evictions)
       best = dist[OUT];
       exit = OUT;
     }
     if (exit === -1) return;
-    // Augment on strict gain, or zero gain that fills a free seat.
-    if (best > 1e-9) return;
-    if (exit === OUT && best > -1e-9) return;
+    if (best > 1e-9) return; // no non-negative-gain way in
+    if (exit === OUT && best > -1e-9) return; // never zero-gain evictions
 
     // Apply the augmenting chain from the exit back to the entry.
     let cur = exit;
@@ -157,6 +215,7 @@ export function solveMarket({ showings, tiers, capacityPerShowing, bidders }) {
         x.cell = cur;
         x.aval = x.accVals[x.accCells.indexOf(cur)];
         assigned[cur].push(x);
+        pushOccupant(x, cur);
       }
       cur = from;
     }
@@ -164,57 +223,101 @@ export function solveMarket({ showings, tiers, capacityPerShowing, bidders }) {
     r.cell = cur;
     r.aval = r.accVals[accI];
     assigned[cur].push(r);
+    pushOccupant(r, cur);
   }
 
-  // Insert strongest bidders first: exchange chains stay short, and among
-  // equal bids the earlier joiner wins the marginal seat (recs arrive in
-  // join order and the sort is stable).
-  const order = recs
-    .map((r, i) => [r.accVals.length ? Math.max(...r.accVals) : -1, i])
-    .sort((a, b) => b[0] - a[0]);
-  for (const [, i] of order) insert(recs[i]);
-
-  // --- buyer-optimal (minimal) prices ---
-  // Lower bounds: floors, and no unassigned bidder may strictly afford a cell.
-  const p = new Float64Array(nC);
-  for (let c = 0; c < nC; c++) p[c] = floors[c];
-  for (const r of recs) {
-    if (r.cell !== -1) continue;
-    for (let i = 0; i < r.accCells.length; i++) {
-      const c = r.accCells[i];
-      const m = r.accVals[i] + floors[c];
-      if (m > p[c]) p[c] = m;
+  // --- buyer-optimal (minimal) price extraction ---
+  function extractPrices() {
+    const p = new Float64Array(nC);
+    for (let c = 0; c < nC; c++) p[c] = floors[c];
+    for (const r of recs) {
+      if (r.cell !== -1 || r.deferred) continue; // deferred bidders may not set price bounds until woken
+      for (let i = 0; i < r.accCells.length; i++) {
+        const c = r.accCells[i];
+        const m = r.accVals[i] + floors[c];
+        if (m > p[c]) p[c] = m;
+      }
     }
-  }
-  // Closure over assigned-bidder stability: x at c must weakly prefer c,
-  // so p[k] >= p[c] + (m_x[k] - m_x[c]) for every k that x accepts.
-  let pass = 0;
-  for (;;) {
-    let changed = false;
-    for (let c = 0; c < nC; c++) {
-      for (const x of assigned[c]) {
-        const mc = x.aval + floors[c];
-        for (let i = 0; i < x.accCells.length; i++) {
-          const k = x.accCells[i];
-          if (k === c) continue;
-          const mk = x.accVals[i] + floors[k];
-          const need = p[c] + (mk - mc);
-          if (need > p[k] + 1e-9) {
-            p[k] = need;
-            changed = true;
+    let pass = 0;
+    for (;;) {
+      let changed = false;
+      for (let c = 0; c < nC; c++) {
+        for (const x of assigned[c]) {
+          const mc = x.aval + floors[c];
+          for (let i = 0; i < x.accCells.length; i++) {
+            const k = x.accCells[i];
+            if (k === c) continue;
+            const mk = x.accVals[i] + floors[k];
+            const need = p[c] + (mk - mc);
+            if (need > p[k] + 1e-9) {
+              p[k] = need;
+              changed = true;
+            }
           }
         }
       }
+      if (!changed) break;
+      if (++pass > nC + 2) throw new Error('price closure did not converge (positive cycle)');
     }
-    if (!changed) break;
-    if (++pass > nC + 2) throw new Error('price closure did not converge (positive cycle)');
+    return p;
+  }
+
+  // Insert strongest bidders first: exchange chains stay short, and among
+  // equal bids the earlier joiner wins the marginal seat (stable sort over
+  // join order).
+  const byStrength = (list) =>
+    list
+      .map((r) => [r.accVals.length ? Math.max(...r.accVals) : -1, r])
+      .sort((a, b) => b[0] - a[0])
+      .map(([, r]) => r);
+
+  // Hint screening: defer bidders who couldn't afford anything at the
+  // previous prices; verify them against the actual result afterwards.
+  const hintMap = hint ? new Map(hint) : null;
+  let deferred = [];
+  const active = [];
+  if (hintMap) {
+    for (const r of recs) {
+      let affordable = false;
+      for (let i = 0; i < r.accCells.length; i++) {
+        const hp = hintMap.get(cellKey(r.accCells[i]));
+        if (hp === undefined || r.accVals[i] + floors[r.accCells[i]] > hp) {
+          affordable = true;
+          break;
+        }
+      }
+      if (affordable) {
+        active.push(r);
+      } else {
+        r.deferred = true;
+        deferred.push(r);
+      }
+    }
+  } else {
+    active.push(...recs);
+  }
+  for (const r of byStrength(active)) insert(r);
+
+  let p = extractPrices();
+  for (;;) {
+    const wake = deferred.filter((r) => {
+      if (r.cell !== -1) return false;
+      for (let i = 0; i < r.accCells.length; i++) {
+        if (r.accVals[i] + floors[r.accCells[i]] > p[r.accCells[i]]) return true;
+      }
+      return false;
+    });
+    if (wake.length === 0) break;
+    deferred = deferred.filter((r) => !wake.includes(r));
+    for (const r of wake) r.deferred = false;
+    for (const r of byStrength(wake)) insert(r);
+    p = extractPrices();
   }
 
   // Package results
-  const prices = new Map(); // "show|tierId" -> price
-  const cellOf = (c) => `${showings[Math.floor(c / nT)]}|${tiers[c % nT].id}`;
-  for (let c = 0; c < nC; c++) prices.set(cellOf(c), Math.round(p[c]));
-  const assignments = new Map(); // bidderId -> {show, tierId, price}
+  const prices = new Map();
+  for (let c = 0; c < nC; c++) prices.set(cellKey(c), Math.round(p[c]));
+  const assignments = new Map();
   for (let c = 0; c < nC; c++) {
     for (const x of assigned[c]) {
       assignments.set(x.id, {

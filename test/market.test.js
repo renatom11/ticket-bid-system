@@ -140,6 +140,25 @@ test('equilibrium properties hold on medium random instances', () => {
   }
 });
 
+test('hint screening never changes the answer', () => {
+  const rng = mulberry32(31);
+  for (let iter = 0; iter < 4; iter++) {
+    const inst = randomInstance(rng, { nBidders: 400, nShows: 3, nTiers: 3, cap: 25, maxV: 120 });
+    const plain = solveMarket(inst);
+    // hints from a totally different book state must not affect the result
+    const misleadingHints = [
+      undefined,
+      [...plain.prices].map(([k, v]) => [k, v + 40]), // screens out lots of bidders
+      [...plain.prices].map(([k]) => [k, 0]), // screens out nobody
+    ];
+    for (const hint of misleadingHints) {
+      const hinted = solveMarket({ ...inst, hint });
+      assert.deepEqual([...hinted.prices], [...plain.prices], `iter ${iter}: prices differ under hint`);
+      assert.equal(hinted.assignments.size, plain.assignments.size, `iter ${iter}: assignment count differs`);
+    }
+  }
+});
+
 test('second-price flavor: the marginal loser sets the price', () => {
   const inst = {
     showings: ['S1'],

@@ -78,7 +78,12 @@ const secs = (t) => Math.max(0, Math.ceil((t - Date.now()) / 1000));
 
 function renderTierBoard() {
   const board = $('#tier-board');
-  board.innerHTML = '';
+  // Persistent card nodes: rebuilding them every poll used to eat clicks.
+  const sig = tiers.map((t) => t.id).join(',');
+  if (board.dataset.sig !== sig) {
+    board.dataset.sig = sig;
+    board.innerHTML = tiers.map((t) => `<div class="tier-card ${t.id}" data-tier="${t.id}"></div>`).join('');
+  }
   const you = state.you;
   const editable = you && !you.withdrawn && state.phase !== 'settled';
   const targetId = editable ? you.targetTier : you && you.assignment ? you.assignment.tierId : null;
@@ -101,9 +106,8 @@ function renderTierBoard() {
       const verb = targetIdx === -1 ? 'jump in' : idx < targetIdx ? 'move up' : 'drop down';
       footer = `<div class="switch-hint">Click to ${verb} — sets your bid to $${price}</div>`;
     }
-    const card = document.createElement('div');
+    const card = board.children[tiers.indexOf(tier)];
     card.className = `tier-card ${tier.id}${isCurrent ? ' current' : ''}${clickable ? ' clickable' : ''}${tier.id === pendingTier ? ' pending' : ''}`;
-    card.dataset.tier = tier.id;
     card.innerHTML = `
       <div>${tier.name}</div>
       <div><span class="price">$${price}</span>${pMax > price ? `<span class="delta up">hot shows to $${pMax}</span>` : deltaHtml(price - prev)}</div>
@@ -111,7 +115,6 @@ function renderTierBoard() {
       <div class="demand-bar"><div style="width:${ratio * 100}%"></div></div>
       ${sparkline(hist)}
       ${footer}`;
-    board.appendChild(card);
   }
 }
 
@@ -232,7 +235,7 @@ function buildJoinForm() {
           <input type="checkbox" name="tier" value="${t.id}" ${t.id !== 't5' ? 'checked' : ''}>
           <span class="tier-dot" style="background:var(--${t.id})"></span>${t.name}
         </label>
-        <span class="trow-max">max $ <input type="number" name="max-${t.id}" min="1" value="${suggestedMax(t.id)}"></span>
+        <span class="trow-max">max $ <input type="number" name="max-${t.id}" min="0" value="${suggestedMax(t.id)}"></span>
       </div>`
     );
   }
@@ -348,7 +351,7 @@ function renderYou() {
             <input type="checkbox" name="ytier" value="${t.id}" ${tm ? 'checked' : ''}>
             <span class="tier-dot" style="background:var(--${t.id})"></span>${t.name}
           </label>
-          <span class="trow-max">max $ <input type="number" name="ymax-${t.id}" min="1" value="${tm ? tm.maxPrice : suggestedMax(t.id)}"></span>
+          <span class="trow-max">max $ <input type="number" name="ymax-${t.id}" min="0" value="${tm ? tm.maxPrice : suggestedMax(t.id)}"></span>
           <span class="steppers">${steppers}</span>
         </div>`
       );
@@ -468,7 +471,7 @@ function wireButtons() {
     if (!you || you.withdrawn || state.phase === 'settled') return;
     const tierId = btn.dataset.tier;
     const input = document.querySelector(`input[name="ymax-${tierId}"]`);
-    input.value = Math.max(1, Number(input.value || 0) + Number(btn.dataset.step));
+    input.value = Math.max(0, Number(input.value || 0) + Number(btn.dataset.step));
     if (Number(btn.dataset.step) > 0) {
       document.querySelector(`input[name="ytier"][value="${tierId}"]`).checked = true;
     }
@@ -476,7 +479,14 @@ function wireButtons() {
   });
   $('#update-btn').addEventListener('click', updateMaxes);
   $('#withdraw-btn').addEventListener('click', async () => {
-    await api('/api/withdraw', { bidderId });
+    const you = state?.you;
+    if (!you || state.phase === 'settled') return;
+    const tierMaxes = you.tierMaxes.map((tm) => ({ ...tm, maxPrice: 0 }));
+    await api('/api/update', { bidderId, tierMaxes });
+    tierMaxes.forEach((tm) => {
+      const input = document.querySelector(`input[name="ymax-${tm.tierId}"]`);
+      if (input) input.value = 0;
+    });
     await refresh();
   });
   document.querySelectorAll('[data-admin]').forEach((btn) => {
