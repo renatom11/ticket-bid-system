@@ -1,25 +1,22 @@
-// Uniform-price clearing auction engine for a ticket drop.
+// Drop engine built on exact market clearing.
 //
-// One drop = N simultaneous showings of the same venue, each split into seat
-// tiers. Every tier has a price clock that starts at its floor. Each round:
-//   1. Every bidder is pooled into the best tier (by their own preference
-//      order) whose current price is within their max for that tier. Bidders
-//      priced out of a tier cascade into the pool of the next tier they accept.
-//   2. Tiers with more demand than seats raise their price; tiers with spare
-//      seats let the price fall back toward the floor (so a spike that scares
-//      people off settles back down — the $110 -> $80 case).
-//   3. When no price moves and every tier has demand <= supply, the drop
-//      settles: everyone still pooled is guaranteed a seat and pays the same
-//      final price for their tier, and concrete seats are assigned.
+// One drop = N simultaneous shows of the venue, each split into seat tiers.
+// Every (show, tier) cell is its own market. On every tick the engine
+// re-solves the whole book — everyone's live acceptance sets and stated
+// ceilings — for the exact buyer-optimal clearing prices and provisional
+// assignment (src/market.js). There is no heuristic price walk: the numbers
+// published each tick are the precise prices at which demand fits supply for
+// the book as it stands. Ticks matter because people (and the demo bots)
+// react between them; when the book stops changing, the drop settles and the
+// last solve is final: winners are charged their cell's price and get seats.
 
 import { TIERS, TIER_ORDER, VENUE, seatsForTier } from './venue.js';
+import { solveMarket } from './market.js';
 
-const PRICE_K = 0.6; // base aggressiveness of price moves
-const MAX_EXCESS_RATIO = 4; // cap on (demand-supply)/supply used for a single jump
 const STABLE_ROUNDS_TO_SETTLE = 2;
 
 export class Drop {
-  constructor({ name = 'Prototype Drop', showings, maxRounds = 25 } = {}) {
+  constructor({ name = 'Prototype Drop', showings, maxRounds = 40 } = {}) {
     this.name = name;
     this.showings = showings ?? ['Showing 1', 'Showing 2', 'Showing 3', 'Showing 4', 'Showing 5'];
     this.maxRounds = maxRounds;
@@ -28,18 +25,26 @@ export class Drop {
     this.stableRounds = 0;
     this.bidders = new Map();
     this.nextBidderId = 1;
-    this.prices = Object.fromEntries(TIERS.map((t) => [t.id, t.floorPrice]));
+    this.bookVersion = 0;
+    this.lastSolvedVersion = -1;
+    this.results = null;
+
     this.floors = Object.fromEntries(TIERS.map((t) => [t.id, t.floorPrice]));
-    this.priceHistory = Object.fromEntries(TIER_ORDER.map((t) => [t, [this.prices[t]]]));
-    this.lastDemand = Object.fromEntries(TIER_ORDER.map((t) => [t, 0]));
+    this.cellPrices = new Map(); // "show|tier" -> exact price (last solve)
+    this.assignments = new Map(); // bidderId -> {show, tierId, price}
+    this.prices = { ...this.floors }; // per-tier MIN cell price (headline number)
+    this.priceMax = { ...this.floors }; // per-tier max cell price
+    this.priceHistory = Object.fromEntries(TIER_ORDER.map((t) => [t, [this.floors[t]]]));
+    this.seated = Object.fromEntries(TIER_ORDER.map((t) => [t, 0]));
     this.supply = Object.fromEntries(
       TIER_ORDER.map((t) => [t, VENUE.capacityPerShowing[t] * this.showings.length])
     );
-    this.results = null;
   }
 
-  // tierMaxes: ordered array of {tierId, maxPrice} — order is the bidder's
-  // preference; they cascade down the list as prices climb past their maxes.
+  touch() {
+    this.bookVersion += 1;
+  }
+
   addBidder({ name, showings, tierMaxes, segment }) {
     if (this.phase === 'settled') throw new UserError('Drop already settled');
     const accepted = (showings ?? []).filter((s) => this.showings.includes(s));
@@ -57,9 +62,10 @@ export class Drop {
       joinedAt: this.bidders.size,
       segment: segment ?? null,
       withdrawn: false,
-      assignment: null, // {tierId, showing, seat: {row, seat}, pricePaid} once settled
+      assignment: null, // final: {tierId, showing, seat, pricePaid}
     };
     this.bidders.set(id, bidder);
+    this.touch();
     return bidder;
   }
 
@@ -78,12 +84,27 @@ export class Drop {
       if (accepted.length === 0) throw new UserError('Keep at least one showing');
       bidder.showings = accepted;
     }
+    this.touch();
+    return bidder;
+  }
+
+  withdraw(id) {
+    const bidder = this.mustGet(id);
+    if (this.phase === 'settled') throw new UserError('Drop already settled');
+    bidder.withdrawn = true;
+    this.touch();
+    return bidder;
+  }
+
+  mustGet(id) {
+    const bidder = this.bidders.get(id);
+    if (!bidder) throw new UserError('Unknown bidder');
     return bidder;
   }
 
   // Add more simultaneous shows mid-drop, growing every tier's supply.
-  // Bidders who accepted every show stay fully flexible and pick up the new
-  // ones; bidders with a hand-picked subset keep their subset.
+  // Bidders who accepted every show stay fully flexible; hand-picked
+  // subsets are kept as-is.
   addShowings(count) {
     if (this.phase === 'settled') throw new UserError('Drop already settled');
     const prevAll = this.showings.length;
@@ -97,150 +118,99 @@ export class Drop {
       if (b.showings.length === prevAll) b.showings.push(...added);
     }
     for (const t of TIER_ORDER) this.supply[t] += VENUE.capacityPerShowing[t] * count;
+    this.touch();
     return added;
-  }
-
-  // Money the platform would collect if the drop settled right now: every
-  // pooled bidder pays their target tier's current price.
-  committedTotal() {
-    let total = 0;
-    let bidders = 0;
-    for (const b of this.bidders.values()) {
-      const t = this.targetTier(b);
-      if (t) {
-        total += this.prices[t];
-        bidders += 1;
-      }
-    }
-    return { total, bidders };
-  }
-
-  withdraw(id) {
-    const bidder = this.mustGet(id);
-    if (this.phase === 'settled') throw new UserError('Drop already settled');
-    bidder.withdrawn = true;
-    return bidder;
-  }
-
-  mustGet(id) {
-    const bidder = this.bidders.get(id);
-    if (!bidder) throw new UserError('Unknown bidder');
-    return bidder;
   }
 
   openBidding() {
     if (this.phase !== 'lobby') return;
     this.phase = 'bidding';
-    this.lastDemand = this.computeDemand();
+    this.solve();
+    this.lastSolvedVersion = this.bookVersion;
   }
 
-  // The tier pool this bidder currently sits in: first tier in their
-  // preference list whose clock price is <= their max for that tier.
-  targetTier(bidder, prices = this.prices) {
-    if (bidder.withdrawn) return null;
-    for (const { tierId, maxPrice } of bidder.tierMaxes) {
-      if (prices[tierId] <= maxPrice) return tierId;
+  // Exact clearing of the current book.
+  solve() {
+    const active = [...this.bidders.values()].filter((b) => !b.withdrawn);
+    const { prices, assignments } = solveMarket({
+      showings: this.showings,
+      tiers: TIERS,
+      capacityPerShowing: VENUE.capacityPerShowing,
+      bidders: active,
+    });
+    this.cellPrices = prices;
+    this.assignments = assignments;
+    for (const t of TIER_ORDER) {
+      let min = Infinity;
+      let max = -Infinity;
+      for (const s of this.showings) {
+        const p = prices.get(`${s}|${t}`);
+        if (p < min) min = p;
+        if (p > max) max = p;
+      }
+      this.prices[t] = min;
+      this.priceMax[t] = max;
+      this.seated[t] = 0;
     }
-    return null; // priced out of everything they accept (they re-enter if prices fall)
+    for (const a of assignments.values()) this.seated[a.tierId] += 1;
   }
 
-  computeDemand(prices = this.prices) {
-    const demand = Object.fromEntries(TIER_ORDER.map((t) => [t, 0]));
-    for (const bidder of this.bidders.values()) {
-      const t = this.targetTier(bidder, prices);
-      if (t) demand[t] += 1;
-    }
-    return demand;
+  // Provisional standing of one bidder in the last solve.
+  currentOf(bidder) {
+    return this.assignments.get(bidder.id) ?? null;
   }
 
-  // One price tick. Returns a summary of what happened.
+  targetTier(bidder) {
+    return this.assignments.get(bidder.id)?.tierId ?? null;
+  }
+
+  // One tick: re-solve the book, publish, settle once the book has been
+  // still for two consecutive ticks (or maxRounds is hit).
   tick() {
     if (this.phase === 'lobby') this.openBidding();
     if (this.phase !== 'bidding') return this.summary();
 
     this.round += 1;
-    const demand = this.computeDemand();
-    const k = PRICE_K / (1 + this.round / 5); // damp moves over time so the clock converges
-    let anyMove = false;
+    const unchanged = this.bookVersion === this.lastSolvedVersion;
+    this.solve();
+    this.lastSolvedVersion = this.bookVersion;
+    for (const t of TIER_ORDER) this.priceHistory[t].push(this.prices[t]);
 
-    for (const t of TIER_ORDER) {
-      const D = demand[t];
-      const S = this.supply[t];
-      const P = this.prices[t];
-      const F = this.floors[t];
-      let next = P;
-      if (D > S) {
-        const excess = Math.min((D - S) / S, MAX_EXCESS_RATIO);
-        next = Math.max(P + 1, Math.ceil(P * (1 + k * excess)));
-      } else if (D < S && P > F) {
-        next = Math.max(F, Math.round(P - k * (P - F) * ((S - D) / S)));
-      }
-      if (next !== P) anyMove = true;
-      this.prices[t] = next;
-      this.priceHistory[t].push(next);
-    }
-
-    this.lastDemand = demand;
-    const cleared = TIER_ORDER.every((t) => demand[t] <= this.supply[t]);
-    this.stableRounds = !anyMove && cleared ? this.stableRounds + 1 : 0;
-
+    this.stableRounds = unchanged ? this.stableRounds + 1 : 0;
     if (this.stableRounds >= STABLE_ROUNDS_TO_SETTLE || this.round >= this.maxRounds) {
       this.settle();
     }
     return this.summary();
   }
 
-  // Assign concrete seats and charge everyone their tier's final price.
-  // Normally runs after the clock has cleared (demand <= supply everywhere);
-  // if we hit maxRounds with excess demand, earlier joiners win ties and the
-  // overflow cascades to the next tier they accept.
+  // Finalize: the last solve is the outcome. Winners are charged their
+  // cell's exact price and receive concrete seats (best seats first within
+  // each cell, earlier joiners first).
   settle() {
-    const seatPools = new Map(); // tierId -> showing -> array of seats (best first)
-    for (const t of TIER_ORDER) {
-      const perShowing = new Map();
-      for (const s of this.showings) perShowing.set(s, seatsForTier(t).slice());
-      seatPools.set(t, perShowing);
+    if (this.phase === 'settled') return this.results;
+    if (this.lastSolvedVersion !== this.bookVersion || this.assignments.size === 0) this.solve();
+
+    const seatPools = new Map(); // "show|tier" -> ordered seats
+    const winnersByCell = new Map();
+    for (const [id, a] of this.assignments) {
+      const b = this.bidders.get(id);
+      const key = `${a.show}|${a.tierId}`;
+      if (!winnersByCell.has(key)) winnersByCell.set(key, []);
+      winnersByCell.get(key).push(b);
     }
-
-    const pools = Object.fromEntries(TIER_ORDER.map((t) => [t, []]));
-    for (const bidder of this.bidders.values()) {
-      const t = this.targetTier(bidder);
-      if (t) pools[t].push(bidder);
-    }
-
-    const takeSeat = (bidder, tierId) => {
-      const perShowing = seatPools.get(tierId);
-      // Prefer the acceptable showing with the most seats left, so load balances.
-      let best = null;
-      for (const s of bidder.showings) {
-        const seats = perShowing.get(s);
-        if (seats.length > 0 && (!best || seats.length > perShowing.get(best).length)) best = s;
-      }
-      if (!best) return false;
-      const seat = perShowing.get(best).shift();
-      bidder.assignment = { tierId, showing: best, seat, pricePaid: this.prices[tierId] };
-      return true;
-    };
-
-    for (const t of TIER_ORDER) {
-      // Bidders with fewer acceptable showings are harder to place — seat them
-      // first; join order breaks ties (and rations a forced settle fairly).
-      const queue = pools[t].sort(
-        (a, b) => a.showings.length - b.showings.length || a.joinedAt - b.joinedAt
-      );
-      for (const bidder of queue) {
-        if (takeSeat(bidder, t)) continue;
-        // Tier full (forced settle or unlucky showing split): cascade down
-        // their remaining preference list.
-        const rest = bidder.tierMaxes.slice(bidder.tierMaxes.findIndex((tm) => tm.tierId === t) + 1);
-        let placed = false;
-        for (const { tierId, maxPrice } of rest) {
-          if (this.prices[tierId] <= maxPrice && takeSeat(bidder, tierId)) {
-            placed = true;
-            break;
-          }
-        }
-        if (!placed) bidder.assignment = null; // missed out — not charged
+    for (const [key, winners] of winnersByCell) {
+      const [show, tierId] = key.split('|');
+      if (!seatPools.has(tierId)) seatPools.set(tierId, seatsForTier(tierId));
+      const seats = seatPools.get(tierId).slice();
+      winners.sort((a, b) => a.joinedAt - b.joinedAt);
+      for (const w of winners) {
+        const a = this.assignments.get(w.id);
+        w.assignment = {
+          tierId,
+          showing: show,
+          seat: seats.shift(),
+          pricePaid: a.price,
+        };
       }
     }
 
@@ -255,14 +225,14 @@ export class Drop {
       TIER_ORDER.map((t) => [
         t,
         {
-          finalPrice: this.prices[t],
+          priceMin: this.prices[t],
+          priceMax: this.priceMax[t],
           sold: winners.filter((b) => b.assignment.tierId === t).length,
           supply: this.supply[t],
         },
       ])
     );
     const active = [...this.bidders.values()].filter((b) => !b.withdrawn);
-    // Equity view: who got in, per socioeconomic segment (when bidders carry one).
     let bySegment = null;
     if (active.some((b) => b.segment)) {
       bySegment = {};
@@ -286,12 +256,20 @@ export class Drop {
     };
   }
 
+  // Money the drop would collect if it settled right now.
+  committedTotal() {
+    let total = 0;
+    for (const a of this.assignments.values()) total += a.price;
+    return { total, bidders: this.assignments.size };
+  }
+
   summary() {
     return {
       phase: this.phase,
       round: this.round,
       prices: { ...this.prices },
-      demand: { ...this.lastDemand },
+      priceMax: { ...this.priceMax },
+      demand: { ...this.seated },
       supply: { ...this.supply },
       results: this.results,
     };

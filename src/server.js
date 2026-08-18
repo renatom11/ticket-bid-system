@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Drop, UserError } from './engine.js';
 import { TIERS, VENUE } from './venue.js';
-import { addBots } from './bots.js';
+import { addBots, adjustBots } from './bots.js';
 
 const PORT = Number(process.env.PORT ?? 3000);
 const LOBBY_SECONDS = Number(process.env.LOBBY_SECONDS ?? 45);
@@ -47,8 +47,11 @@ function scheduleTick() {
     nextTickAt = null;
     return;
   }
+  // Self-pacing: the next tick is scheduled only after this one's exact
+  // solve completes, so heavy books stretch the cadence instead of piling up.
   nextTickAt = Date.now() + ROUND_SECONDS * 1000;
   timer = setTimeout(() => {
+    adjustBots(drop);
     drop.tick();
     scheduleTick();
   }, ROUND_SECONDS * 1000);
@@ -67,6 +70,7 @@ function publicState(bidderId) {
     nextTickAt,
     roundSeconds: ROUND_SECONDS,
     dropOpen: lobbyEndsAt !== null || drop.phase !== 'lobby',
+    cells: Object.fromEntries(drop.cellPrices),
     you: you
       ? {
           id: you.id,
@@ -75,6 +79,7 @@ function publicState(bidderId) {
           tierMaxes: you.tierMaxes,
           withdrawn: you.withdrawn,
           targetTier: drop.targetTier(you),
+          current: drop.currentOf(you),
           assignment: you.assignment,
         }
       : null,
@@ -124,6 +129,7 @@ const server = http.createServer(async (req, res) => {
         case '/api/admin/tick':
           if (drop.phase === 'lobby') startBidding();
           clearTimeout(timer);
+          adjustBots(drop);
           drop.tick();
           scheduleTick();
           return send(200, publicState(null));

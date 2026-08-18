@@ -2,12 +2,32 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Drop } from '../src/engine.js';
 import { VENUE, TIER_ORDER, seatsForTier } from '../src/venue.js';
-import { addBots } from '../src/bots.js';
+import { addBots, adjustBots } from '../src/bots.js';
 
 const SHOWINGS = ['S1', 'S2'];
 
-function makeDrop() {
-  return new Drop({ showings: SHOWINGS });
+function makeDrop(opts = {}) {
+  return new Drop({ showings: SHOWINGS, ...opts });
+}
+
+function runToSettle(drop, rng) {
+  drop.openBidding();
+  let guard = 0;
+  while (drop.phase === 'bidding' && guard++ < 100) {
+    if (rng) adjustBots(drop, rng);
+    drop.tick();
+  }
+  assert.equal(drop.phase, 'settled');
+}
+
+function mulberry32(a) {
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
 test('venue zones cover every seat exactly once', () => {
@@ -19,90 +39,84 @@ test('venue zones cover every seat exactly once', () => {
   }
 });
 
-test('excess demand raises the price, spare capacity lowers it back toward the floor', () => {
+test('the Show-7 failure case is gone: a hot show prices itself, everyone who can afford it is seated', () => {
   const drop = makeDrop();
-  const supply = drop.supply.t1;
-  // 3x oversubscribe tier 1 with rich bidders
-  for (let i = 0; i < supply * 3; i++) {
-    drop.addBidder({ name: `b${i}`, showings: SHOWINGS, tierMaxes: [{ tierId: 't1', maxPrice: 500 }] });
+  const cap = VENUE.capacityPerShowing.t2; // 76 Prime Center seats per show
+  // 90 bidders insist on S1's Prime Center, distinct maxes 40..129
+  for (let i = 0; i < 90; i++) {
+    drop.addBidder({ name: `hot${i}`, showings: ['S1'], tierMaxes: [{ tierId: 't2', maxPrice: 40 + i }] });
   }
-  drop.openBidding();
-  const before = drop.prices.t1;
-  drop.tick();
-  assert.ok(drop.prices.t1 > before, 'price should rise under excess demand');
-
-  // Everyone bails: price should sag back toward the floor over the next rounds
-  for (const b of drop.bidders.values()) drop.withdraw(b.id);
-  const spiked = drop.prices.t1;
-  drop.tick();
-  assert.ok(drop.prices.t1 < spiked, 'price should fall when demand collapses');
+  runToSettle(drop);
+  const p = drop.cellPrices.get('S1|t2');
+  const winners = [...drop.bidders.values()].filter((b) => b.assignment);
+  assert.equal(winners.length, cap, 'exactly the seats that exist are sold');
+  // The price is exactly the marginal (highest losing) bid: maxes are
+  // 40..129, seats go to the top 76, so the best loser bid 40+90-cap-1.
+  assert.equal(p, 40 + 90 - cap - 1, `price ${p} equals the marginal bid`);
+  for (const b of drop.bidders.values()) {
+    if (b.assignment) {
+      assert.ok(b.tierMaxes[0].maxPrice >= p, 'every winner could afford the price');
+      assert.equal(b.assignment.pricePaid, p, 'uniform price within the cell');
+    } else {
+      assert.ok(b.tierMaxes[0].maxPrice <= p, 'nobody who could afford it was left out');
+    }
+  }
+  // And the other show's identical seats stay at floor
+  assert.equal(drop.cellPrices.get('S2|t2'), drop.floors.t2);
 });
 
-test('bidders priced out of a tier cascade into their next tier pool', () => {
+test('flexibility is precisely rewarded: flexible bidders are steered to slack shows at floor', () => {
   const drop = makeDrop();
-  const f = drop.floors.t1;
-  const cheap = drop.addBidder({
-    name: 'cheap',
-    showings: SHOWINGS,
-    tierMaxes: [
-      { tierId: 't1', maxPrice: f + 1 },
-      { tierId: 't2', maxPrice: 500 },
-    ],
+  for (let i = 0; i < 80; i++) {
+    drop.addBidder({ name: `hot${i}`, showings: ['S1'], tierMaxes: [{ tierId: 't1', maxPrice: 200 + i }] });
+  }
+  const flex = drop.addBidder({
+    name: 'flex',
+    showings: ['S1', 'S2'],
+    tierMaxes: [{ tierId: 't1', maxPrice: 100 }],
   });
-  assert.equal(drop.targetTier(cheap), 't1');
-  drop.prices.t1 = f + 2; // clock passes their t1 max
-  assert.equal(drop.targetTier(cheap), 't2');
-  drop.prices.t1 = f; // and they re-enter if it falls back
-  assert.equal(drop.targetTier(cheap), 't1');
+  runToSettle(drop);
+  assert.ok(flex.assignment, 'flexible bidder gets a seat');
+  assert.equal(flex.assignment.showing, 'S2');
+  assert.equal(flex.assignment.pricePaid, drop.floors.t1, 'and pays floor while S1 runs hot');
+  assert.ok(drop.cellPrices.get('S1|t1') > drop.floors.t1);
 });
 
-test('drop settles: capacity respected, uniform price per tier, nobody pays over their max', () => {
+test('settlement: capacity respected, cell-uniform prices, nobody over their max, seats unique', () => {
   const drop = makeDrop();
-  addBots(drop, 900, mulberry32(7));
-  drop.openBidding();
-  let guard = 0;
-  while (drop.phase === 'bidding' && guard++ < 100) drop.tick();
-  assert.equal(drop.phase, 'settled');
+  const rng = mulberry32(7);
+  addBots(drop, 1200, rng);
+  runToSettle(drop, rng);
 
   const winners = [...drop.bidders.values()].filter((b) => b.assignment);
   assert.ok(winners.length > 0);
-
-  const seatCount = new Map(); // "tier|showing" -> count
+  const cellCount = new Map();
   const seatIds = new Set();
   for (const w of winners) {
     const { tierId, showing, seat, pricePaid } = w.assignment;
-    assert.equal(pricePaid, drop.prices[tierId], 'uniform price per tier');
+    assert.equal(pricePaid, drop.cellPrices.get(`${showing}|${tierId}`), 'cell-uniform price');
     const max = w.tierMaxes.find((tm) => tm.tierId === tierId).maxPrice;
-    assert.ok(pricePaid <= max, 'never charged over their stated max');
+    assert.ok(pricePaid <= max, 'never charged over the stated max');
     assert.ok(w.showings.includes(showing), 'assigned an acceptable showing');
-    const key = `${tierId}|${showing}`;
-    seatCount.set(key, (seatCount.get(key) ?? 0) + 1);
+    const key = `${showing}|${tierId}`;
+    cellCount.set(key, (cellCount.get(key) ?? 0) + 1);
     const seatId = `${showing}|${seat.row}${seat.seat}`;
     assert.ok(!seatIds.has(seatId), 'no double-booked seats');
     seatIds.add(seatId);
   }
-  for (const [key, count] of seatCount) {
-    const tierId = key.split('|')[0];
-    assert.ok(count <= VENUE.capacityPerShowing[tierId], 'per-showing tier capacity respected');
+  for (const [key, count] of cellCount) {
+    const tierId = key.split('|')[1];
+    assert.ok(count <= VENUE.capacityPerShowing[tierId], 'per-cell capacity respected');
   }
-});
-
-test('when the clock clears (demand <= supply), everyone still pooled gets a seat', () => {
-  const drop = makeDrop();
-  // Modest demand, everyone flexible and within floor prices: clears immediately.
-  for (let i = 0; i < 50; i++) {
-    drop.addBidder({
-      name: `b${i}`,
-      showings: SHOWINGS,
-      tierMaxes: [{ tierId: 't2', maxPrice: 40 }],
-    });
+  // The core guarantee: no unseated bidder can afford any cell they accept.
+  for (const b of drop.bidders.values()) {
+    if (b.withdrawn || b.assignment) continue;
+    for (const tm of b.tierMaxes) {
+      for (const s of b.showings) {
+        assert.ok(tm.maxPrice <= drop.cellPrices.get(`${s}|${tm.tierId}`), 'guarantee holds');
+      }
+    }
   }
-  drop.openBidding();
-  let guard = 0;
-  while (drop.phase === 'bidding' && guard++ < 100) drop.tick();
-  const winners = [...drop.bidders.values()].filter((b) => b.assignment);
-  assert.equal(winners.length, 50, 'every committed bidder is guaranteed a seat');
-  for (const w of winners) assert.equal(w.assignment.pricePaid, drop.floors.t2);
 });
 
 test('withdrawn bidders are never charged or seated', () => {
@@ -111,91 +125,44 @@ test('withdrawn bidders are never charged or seated', () => {
   const leave = drop.addBidder({ name: 'leave', showings: SHOWINGS, tierMaxes: [{ tierId: 't3', maxPrice: 30 }] });
   drop.openBidding();
   drop.withdraw(leave.id);
-  let guard = 0;
-  while (drop.phase === 'bidding' && guard++ < 100) drop.tick();
+  runToSettle(drop);
   assert.ok(stay.assignment);
+  assert.equal(stay.assignment.pricePaid, drop.floors.t3, 'uncontested seats price at floor');
   assert.equal(leave.assignment, null);
 });
 
-test('forced settle rations oversubscribed tiers by join order and cascades the overflow', () => {
-  const drop = new Drop({ showings: ['S1'], maxRounds: 1 });
-  const supply = drop.supply.t1;
-  const bidders = [];
-  for (let i = 0; i < supply + 10; i++) {
-    bidders.push(
-      drop.addBidder({
-        name: `b${i}`,
-        showings: ['S1'],
-        tierMaxes: [
-          { tierId: 't1', maxPrice: 10000 }, // all rich enough that the clock can't shed them in 1 round
-          { tierId: 't2', maxPrice: 10000 },
-        ],
-      })
-    );
-  }
-  drop.openBidding();
-  drop.tick(); // hits maxRounds -> forced settle
-  assert.equal(drop.phase, 'settled');
-  const inT1 = bidders.filter((b) => b.assignment?.tierId === 't1');
-  const inT2 = bidders.filter((b) => b.assignment?.tierId === 't2');
-  assert.equal(inT1.length, supply);
-  assert.equal(inT2.length, 10);
-  // earliest joiners kept the contested tier
-  assert.ok(inT1.every((b) => b.joinedAt < supply));
-});
-
-test('bidders can update their showings mid-drop, and committedTotal tracks the pool', () => {
+test('bidders can update showings mid-drop, and committedTotal tracks the exact pool', () => {
   const drop = makeDrop();
   const b = drop.addBidder({ name: 'b', showings: ['S1'], tierMaxes: [{ tierId: 't2', maxPrice: 40 }] });
   drop.updateBidder(b.id, { showings: ['S1', 'S2'] });
   assert.deepEqual(b.showings, ['S1', 'S2']);
   assert.throws(() => drop.updateBidder(b.id, { showings: [] }), /at least one showing/);
-  assert.deepEqual(b.tierMaxes, [{ tierId: 't2', maxPrice: 40 }], 'tierMaxes untouched by showings update');
+  drop.openBidding();
   const c = drop.committedTotal();
   assert.equal(c.bidders, 1);
-  assert.equal(c.total, drop.prices.t2);
+  assert.equal(c.total, drop.floors.t2);
 });
 
-test('adding shows grows supply; fully-flexible bidders pick them up, restricted ones keep their set', () => {
-  const drop = makeDrop(); // showings S1, S2
+test('adding shows grows supply and relieves prices; flexible bidders pick the new shows up', () => {
+  const drop = makeDrop();
   const flexible = drop.addBidder({ name: 'f', showings: ['S1', 'S2'], tierMaxes: [{ tierId: 't2', maxPrice: 40 }] });
   const picky = drop.addBidder({ name: 'p', showings: ['S1'], tierMaxes: [{ tierId: 't2', maxPrice: 40 }] });
   const t2Before = drop.supply.t2;
   drop.addShowings(2);
   assert.equal(drop.showings.length, 4);
-  assert.equal(drop.supply.t2, t2Before * 2, 'supply doubles when show count doubles');
+  assert.equal(drop.supply.t2, t2Before * 2);
   assert.equal(flexible.showings.length, 4);
   assert.deepEqual(picky.showings, ['S1']);
 });
 
-test('crowd spans socioeconomic backgrounds, including bidders willing to pay hundreds', () => {
+test('behavioral crowd converges and reports segments, with true budgets in the hundreds', () => {
   const drop = makeDrop();
-  addBots(drop, 2000, mulberry32(3));
-  const bidders = [...drop.bidders.values()];
-  const t1Maxes = bidders
-    .flatMap((b) => b.tierMaxes.filter((tm) => tm.tierId === 't1'))
-    .map((tm) => tm.maxPrice);
-  assert.ok(t1Maxes.some((m) => m >= 300), 'some superfans will pay $300+ for prime seats');
-  assert.ok(t1Maxes.some((m) => m <= 60), 'and plenty of modest budgets exist alongside them');
-  const segments = new Set(bidders.map((b) => b.segment));
-  assert.ok(segments.size >= 5, 'all five segments are represented');
-
-  drop.openBidding();
-  let guard = 0;
-  while (drop.phase === 'bidding' && guard++ < 100) drop.tick();
+  const rng = mulberry32(3);
+  const bots = addBots(drop, 1500, rng);
+  const trueT1 = bots.flatMap((b) => (b.bot.trueMaxes.t1 ? [b.bot.trueMaxes.t1] : []));
+  assert.ok(trueT1.some((m) => m >= 300), 'superfans worth $300+ exist');
+  runToSettle(drop, rng);
   const bySegment = drop.results.bySegment;
-  assert.ok(bySegment && Object.keys(bySegment).length >= 5, 'settlement reports per-segment outcomes');
-  for (const row of Object.values(bySegment)) {
-    assert.ok(row.winners <= row.bidders);
-  }
+  assert.ok(bySegment && Object.keys(bySegment).length >= 5);
+  for (const row of Object.values(bySegment)) assert.ok(row.winners <= row.bidders);
 });
-
-function mulberry32(a) {
-  return () => {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}

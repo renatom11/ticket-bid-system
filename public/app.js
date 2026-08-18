@@ -85,12 +85,12 @@ function renderTierBoard() {
   const targetIdx = targetId ? tiers.findIndex((t) => t.id === targetId) : -1;
   for (const tier of tiers) {
     const price = state.prices[tier.id];
+    const pMax = state.priceMax?.[tier.id] ?? price;
     const hist = state.priceHistory[tier.id] || [price];
     const prev = hist.length > 1 ? hist[hist.length - 2] : price;
     const d = state.demand[tier.id];
     const s = state.supply[tier.id];
     const ratio = Math.min(1, d / s);
-    const over = d > s;
     const isCurrent = tier.id === targetId;
     const clickable = editable && !isCurrent;
     let footer = '';
@@ -106,9 +106,9 @@ function renderTierBoard() {
     card.dataset.tier = tier.id;
     card.innerHTML = `
       <div>${tier.name}</div>
-      <div><span class="price">$${price}</span>${deltaHtml(price - prev)}</div>
-      <div class="meta">${d} bidding · ${s} seats${over ? ' · OVERSUBSCRIBED' : ''}</div>
-      <div class="demand-bar"><div class="${over ? 'over' : ''}" style="width:${ratio * 100}%"></div></div>
+      <div><span class="price">$${price}</span>${pMax > price ? `<span class="delta up">hot shows to $${pMax}</span>` : deltaHtml(price - prev)}</div>
+      <div class="meta">${d} seated · ${s} seats</div>
+      <div class="demand-bar"><div style="width:${ratio * 100}%"></div></div>
       ${sparkline(hist)}
       ${footer}`;
     board.appendChild(card);
@@ -282,20 +282,36 @@ function renderYou() {
       const t = tierById(you.assignment.tierId);
       st.innerHTML = `<div class="you-status-card">🎟️ <span class="big">You're in!</span><br>
         ${you.assignment.showing} · ${t.name}<br>
-        Seat <b>${you.assignment.seat.row}${you.assignment.seat.seat}</b> — charged <b>$${you.assignment.pricePaid}</b> (same as everyone in your tier)</div>`;
+        Seat <b>${you.assignment.seat.row}${you.assignment.seat.seat}</b> — charged <b>$${you.assignment.pricePaid}</b> (the exact clearing price for this show's tier)</div>`;
     } else {
       st.innerHTML = `<div class="you-status-card">😔 You were priced out of every tier you accepted. You were not charged.</div>`;
     }
     return;
   }
 
-  const target = you.targetTier ? tierById(you.targetTier) : null;
-  st.innerHTML = `<div class="you-status-card">
-    ${
-      target
-        ? `You're pooled in <b>${target.name}</b> at the current price of <b>$${state.prices[target.id]}</b>. If it settles here, that's what you pay — guaranteed seat.`
-        : `⚠️ Every tier you accepted is priced above your max. You're out unless prices fall or you raise a max.`
-    }</div>`;
+  if (state.phase === 'lobby') {
+    st.innerHTML = `<div class="you-status-card">You're in the book. Exact prices are computed from everyone's bids once bidding starts.</div>`;
+  } else {
+    const cur = you.current;
+    let outbidHint = '';
+    if (!cur && state.cells) {
+      // cheapest way in across everything they accept
+      let best = null;
+      for (const tm of you.tierMaxes) {
+        for (const s of you.showings) {
+          const p = state.cells[`${s}|${tm.tierId}`];
+          if (p !== undefined && (!best || p < best.p)) best = { p, s, t: tm.tierId };
+        }
+      }
+      if (best) outbidHint = ` Cheapest way in: ${tierById(best.t).name} · ${best.s} at <b>$${best.p}</b>.`;
+    }
+    st.innerHTML = `<div class="you-status-card">
+      ${
+        cur
+          ? `You're provisionally seated: <b>${cur.show} · ${tierById(cur.tierId).name}</b> at exactly <b>$${cur.price}</b>. If the drop settled now, that's yours.`
+          : `⚠️ At the current exact prices you're outbid everywhere you accept.${outbidHint}`
+      }</div>`;
+  }
 
   // showings editor: one toggle chip per show
   const sf = $('#you-showings');
@@ -366,7 +382,8 @@ function renderResults() {
   const rows = tiers
     .map((t) => {
       const row = r.byTier[t.id];
-      return `<tr><td>${t.name}</td><td>$${row.finalPrice}</td><td>${row.sold} / ${row.supply}</td></tr>`;
+      const range = row.priceMin === row.priceMax ? `$${row.priceMin}` : `$${row.priceMin}–$${row.priceMax}`;
+      return `<tr><td>${t.name}</td><td>${range}</td><td>${row.sold} / ${row.supply}</td></tr>`;
     })
     .join('');
   $('#results').innerHTML = `

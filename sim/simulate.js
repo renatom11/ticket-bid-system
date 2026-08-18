@@ -1,14 +1,14 @@
-// CLI simulation: run a full drop with a crowd of bots and print the
-// round-by-round price discovery. Usage: npm run sim [-- <botCount> <seed>]
+// CLI simulation: run a full drop with a behavioral crowd against the exact
+// clearing engine, printing each tick's precise prices.
+// Usage: npm run sim [-- <botCount> <seed>]
 
 import { Drop } from '../src/engine.js';
-import { addBots, SEGMENTS } from '../src/bots.js';
+import { addBots, adjustBots, SEGMENTS } from '../src/bots.js';
 import { TIERS, TIER_ORDER } from '../src/venue.js';
 
 const botCount = Number(process.argv[2] ?? 2500);
 const seed = Number(process.argv[3] ?? 42);
 
-// Small deterministic RNG so runs are reproducible.
 function mulberry32(a) {
   return () => {
     a |= 0;
@@ -19,26 +19,36 @@ function mulberry32(a) {
   };
 }
 
+const rng = mulberry32(seed);
 const drop = new Drop({ name: 'Simulated Drop' });
-addBots(drop, botCount, mulberry32(seed));
+addBots(drop, botCount, rng);
 
-console.log(`\n${drop.name}: ${botCount} bidders, ${drop.showings.length} showings\n`);
+console.log(`\n${drop.name}: ${botCount} bidders, ${drop.showings.length} shows`);
+console.log('Exact clearing each tick; bots anchor low and raise while losing.\n');
 console.log('Supply per tier:', TIER_ORDER.map((t) => `${t}=${drop.supply[t]}`).join('  '));
-console.log('\nRound | ' + TIER_ORDER.map((t) => `${t} price (demand/supply)`).join(' | '));
-console.log('-'.repeat(100));
+console.log(
+  '\nRound | ' + TIER_ORDER.map((t) => `${t} $min-max (seated)`).join(' | ') + ' | moved'
+);
+console.log('-'.repeat(110));
 
-drop.openBidding();
-const line = (label) =>
+const line = (label, moved) =>
   console.log(
     `${String(label).padStart(5)} | ` +
-      TIER_ORDER.map(
-        (t) => `$${String(drop.prices[t]).padStart(4)} (${drop.lastDemand[t]}/${drop.supply[t]})`.padEnd(22)
-      ).join(' | ')
+      TIER_ORDER.map((t) => {
+        const range = drop.prices[t] === drop.priceMax[t]
+          ? `$${drop.prices[t]}`
+          : `$${drop.prices[t]}-${drop.priceMax[t]}`;
+        return `${range} (${drop.seated[t]}/${drop.supply[t]})`.padEnd(19);
+      }).join(' | ') +
+      ` | ${moved}`
   );
-line('start');
+
+drop.openBidding();
+line('start', '-');
 while (drop.phase === 'bidding') {
+  const moved = adjustBots(drop, rng);
   drop.tick();
-  line(drop.round);
+  line(drop.round, moved);
 }
 
 const r = drop.results;
@@ -46,9 +56,8 @@ console.log(`\nSettled in ${r.rounds} rounds`);
 console.log(`Winners: ${r.winners}/${r.participants} bidders · revenue $${r.revenue.toLocaleString()}\n`);
 for (const tier of TIERS) {
   const row = r.byTier[tier.id];
-  console.log(
-    `${tier.name.padEnd(24)} settled $${String(row.finalPrice).padStart(4)} · sold ${row.sold}/${row.supply}`
-  );
+  const range = row.priceMin === row.priceMax ? `$${row.priceMin}` : `$${row.priceMin}-$${row.priceMax}`;
+  console.log(`${tier.name.padEnd(26)} settled ${range.padStart(9)} · sold ${row.sold}/${row.supply}`);
 }
 
 if (r.bySegment) {
@@ -63,4 +72,17 @@ if (r.bySegment) {
     );
   }
 }
+
+// Guarantee check: at exact clearing prices, nobody who can afford a cell is
+// left out, and every winner is in a best cell for them.
+let violations = 0;
+for (const b of drop.bidders.values()) {
+  if (b.withdrawn || b.assignment) continue;
+  for (const tm of b.tierMaxes) {
+    for (const s of b.showings) {
+      if (tm.maxPrice > drop.cellPrices.get(`${s}|${tm.tierId}`)) violations++;
+    }
+  }
+}
+console.log(`\nGuarantee check: ${violations === 0 ? 'PASS' : 'FAIL'} — no unseated bidder can afford any cell they accept.`);
 console.log();

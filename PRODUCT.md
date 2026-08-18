@@ -25,20 +25,20 @@ Turn the drop from a race into a **uniform-price clearing auction**:
 2. **Preferences, not clicks-per-second.** Each buyer states their filters once: which
    dates/showtimes they'd attend, which seat tiers they'd accept, and the most they'd pay for each
    tier. That's the whole interaction — no refreshing, no seat-grab race.
-3. **Public price discovery.** Every seat tier has a price clock starting at a low floor. On a
-   fixed cadence (a "tick", e.g. every 5 minutes), the platform counts how many buyers are pooled
-   in each tier at the current price:
-   - More buyers than seats → the price rises in proportion to how oversubscribed it is.
-   - Fewer buyers than seats → the price falls back toward the floor. A spike that scares people
-     off corrects itself: if $110 sheds half the crowd, the next tick might read $80.
-   - Priced out of your preferred tier → you automatically cascade into the pool of the next tier
-     you accepted, and you re-enter the better pool if its price falls back within your max.
-4. **Settlement.** When prices stop moving and every tier's demand fits its seats, the drop
-   settles. Everyone still pooled:
-   - is **guaranteed a seat** matching their filters,
-   - pays their tier's **final settled price — the same as everyone else in that tier**, never
-     more than the max they stated, and never the mid-auction peak,
-   - gets a concrete seat assigned (best seats first, balanced across the showtimes they accepted).
+3. **Exact public price discovery.** On a fixed cadence (a "tick", e.g. every 5 minutes) the
+   platform re-solves the entire book — everyone's live constraints and ceilings — as a
+   capacitated assignment market and publishes the precise market-clearing price of every
+   (showtime, tier) cell. Nothing is heuristic: each tick answers "if the drop closed right now,
+   here is exactly what everything costs and exactly who sits where." Flexibility earns a
+   calculated discount (your price is the cheapest cell you accept); insisting on the hottest
+   showtime costs that showtime's true premium; and because the marginal loser sets the price,
+   **bidding your honest maximum is mathematically optimal** — there is no strategy to play.
+4. **Settlement.** When the book stops moving, the last solve is final. Everyone seated:
+   - is **guaranteed their seat** — at clearing prices, no one who can afford a cell they accept
+     is ever left out,
+   - pays the **exact clearing price of their cell — the same as everyone else in it**, never
+     more than the max they stated, and never their own max unless they were the marginal winner,
+   - gets a concrete seat assigned (best seats first within the cell).
 
    Anyone who dropped out or was priced out pays nothing.
 
@@ -85,8 +85,9 @@ with its own demand.
 
 ## Current prototype (this repo)
 
-- Full auction engine with price clocks, tier cascade, re-entry, convergence, forced-settle
-  rationing, and seat assignment — pure JS, unit-tested.
+- Exact clearing engine — a capacitated assignment-market solver (successive shortest paths +
+  buyer-optimal price extraction), tested against a brute-force oracle — plus the drop
+  lifecycle: live book, re-solve-and-publish ticks, convergence, settlement, seat assignment.
 - Web UI: live tier boards with price history, the seat map with our zones, join/raise-max/drop-out
   flow, and a demo crowd drawn from five socioeconomic segments — students on a ~$16 budget up to
   superfans whose lognormal budget tail passes $500 for prime seats.
@@ -98,10 +99,10 @@ with its own demand.
 
 ## Roadmap / stretch goals
 
-- Per-(showtime, tier) price clocks so single-showing buyers are never squeezed by aggregate
-  clearing (today: rare edge, constrained buyers are seated first).
-- Real drops across different dates and times with custom filter combinations — the original full
-  design.
+- Real drops across different dates and times with custom filter combinations — the per-cell
+  market already prices each showtime separately; this is labeling and UI.
+- Closing dynamics for the final tick: an activity rule (raise any time, lowering locks early)
+  or a soft close, plus a lottery among tied marginal bidders.
 - Payments: card hold at commit, capture at settlement; identity checks and per-person ticket
   limits; transfer rules that keep resale at face value.
 - Seat *choice* within your tier at settlement (currently auto-assigned best-first).

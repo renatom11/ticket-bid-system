@@ -19,23 +19,24 @@ npm test           # engine unit tests
 1. **Lobby (the "first 10 minutes").** The drop opens at an announced time. Everyone joins and sets
    their filters: which of the 5 showings they'd attend, which seat tiers they'd take, and the max
    they'd pay for each tier. No speed advantage — joining 1 second or 9 minutes in is identical.
-2. **Bidding rounds (price ticks).** Every tier has a price clock starting at its floor
-   (~$15–30). Each round, the platform counts how many people are pooled in each tier:
-   - **Demand > seats** → price rises, proportionally to how oversubscribed it is.
-   - **Demand < seats** → price falls back toward the floor. This is the "$110 → $80" case: a
-     spike scares people off, so the next tick is cheaper for everyone who held on.
-   - Get priced out of a tier and you **cascade automatically** into the next tier you accepted
-     (e.g. Tier 1 passes your $90 max → you join the Tier 2 pool). If prices fall back within your
-     max, you re-enter the better pool.
-   - You can raise your maxes or drop out between any two ticks.
-3. **Settlement.** When prices stop moving and every tier fits its seats, the drop settles.
-   Everyone still pooled is charged their tier's final price — the same for all winners in that
-   tier, never more than the max they stated — and gets a concrete seat assigned (best seats first,
-   load-balanced across the showings they accepted). Nobody who dropped out or got priced out is
-   charged anything.
-
-If the clock hasn't converged after `maxRounds`, it force-settles: earlier joiners win ties in
-oversubscribed tiers and the overflow cascades down.
+2. **Exact clearing, every tick.** There is no heuristic price walk. Each tick, the platform
+   re-solves the entire book — everyone's live acceptance sets and stated ceilings — as a
+   capacitated assignment market (Shapley–Shubik) and publishes the **buyer-optimal
+   market-clearing price for every (show, tier) cell** (`src/market.js`, exhaustively tested
+   against a brute-force oracle). Properties, by construction:
+   - a hot show prices itself up until its demand exactly fits its seats — the "90 people
+     insisting on Show 7's 76 seats" failure case cannot happen;
+   - flexibility is precisely rewarded: your price is the cheapest cell you accept, so flexible
+     bidders are steered to slack shows at the floor while single-hot-show bidders pay that
+     show's true premium;
+   - the marginal loser sets the price (second-price flavor): you never pay your own max, and
+     **truthful bidding is provably your best strategy**;
+   - nobody who can afford any cell they accept is ever left unseated.
+   You can raise your maxes, add shows, or drop out between any two ticks.
+3. **Settlement.** Ticks matter because people react between them. When the book stops changing
+   for two ticks (or `maxRounds` hits), the last solve is final: winners are charged their cell's
+   exact price — never more than their stated max — and get concrete seats (best seats first,
+   earlier joiners first). Nobody who dropped out or was outbid pays anything.
 
 ## The venue
 
@@ -67,31 +68,30 @@ student caps out near $20:
 | Budget-conscious | 25% | $28 | Tiers 2–4, any seat beats none |
 | Students / lowest budget | 10% | $16 | Tiers 3–4 |
 
-Settlement reports a per-segment equity breakdown (who got seated, at what average price).
+Bots bid *behaviorally*: they anchor low near the floor (the way real buyers do) and raise
+toward their private true budget while they're losing — or give up. Prices published each tick
+are exact for the stated book, and the drop settles when the crowd stops moving. Settlement
+reports a per-segment equity breakdown (who got seated, at what average price).
 
 ## What a run looks like
 
-`npm run sim` (2500 bidders, deterministic seed):
+`npm run sim` (2500 bidders, deterministic seed): prices open at the floors, climb tick by tick
+as losing bots raise their stated ceilings, and freeze when the crowd stops moving:
 
 ```
-Tier 1 · Center of Center settled $272 · sold  60/60
-Tier 2 · Prime Center     settled $ 69 · sold 377/380
-Tier 3 · Great            settled $ 47 · sold 478/490
-Tier 4 · Okay             settled $ 28 · sold 474/480
-Tier 5 · Front            settled $ 15 · sold 425/770
+Round | t1 $ (seated)   | t2 $ (seated)   | t3 $ (seated)   | t4 $ (seated)   | t5 $ (seated) | moved
+start | $40  (34/60)    | $30 (380/380)   | $25 (490/490)   | $20 (480/480)   | $15 (652/770) |   -
+    5 | $73  (60/60)    | $32 (380/380)   | $27 (490/490)   | $21 (480/480)   | $15 (669/770) | 176
+   15 | $170 (60/60)    | $34 (380/380)   | $28 (490/490)   | $22 (480/480)   | $15 (669/770) |  11
+   30 | $184 (60/60)    | $34 (380/380)   | $28 (490/490)   | $22 (480/480)   | $15 (669/770) |   0
 
-Who got in, by segment:
-Superfans / high income       154/188  seated ( 82%) · avg paid $145
-Comfortable professionals     404/444  seated ( 91%) · avg paid $59
-Middle income                 699/1018 seated ( 69%) · avg paid $40
-Budget-conscious              437/593  seated ( 74%) · avg paid $20
-Students / lowest budget      120/257  seated ( 47%) · avg paid $15
+Settled: Center of Center $184 (60/60) · Prime Center $34 · Front stays at the $15 floor
+Guarantee check: PASS — no unseated bidder can afford any cell they accept.
 ```
 
-Prices climb, priced-out bidders cascade into lower tiers, and the system finds equilibrium. The
-tiny Center of Center tier (60 seats against superfan demand) settles at nearly 4x Prime Center —
-real scarcity pricing — while the uniform-price property still holds: superfans willing to pay
-$300–700 pay the same $272 clearing price as the marginal winner.
+The 60-seat Center of Center is bid up 5x by dueling superfans while uncontested tiers stay
+near their floors — and the final line is the point: at exact clearing prices, being left out
+*means* the market price exceeded your ceiling, never bad luck.
 
 ## Demoing the web UI
 
@@ -108,23 +108,29 @@ Open http://localhost:3000, expand **Demo controls**:
 ## Layout
 
 ```
-src/venue.js    seat map, zone definitions, capacities
-src/engine.js   the auction: pools, price clocks, cascade, settlement
-src/bots.js     randomized demo crowd
-src/server.js   zero-dep HTTP server + JSON API
-public/         web UI (vanilla JS, polls /api/state)
-sim/simulate.js CLI convergence demo
-test/           engine unit tests (node --test)
+src/venue.js       seat map, zone definitions, capacities
+src/market.js      exact clearing: capacitated assignment market solver
+                   (successive shortest paths + minimal-price extraction)
+src/engine.js      drop lifecycle: book, ticks (= re-solve + publish), settlement
+src/bots.js        behavioral demo crowd (anchor low, raise while losing)
+src/server.js      zero-dep HTTP server + JSON API
+public/            web UI (vanilla JS, polls /api/state)
+web-demo/          single-file demo, BUILT from src/ (node web-demo/build.mjs)
+sim/simulate.js    CLI convergence demo
+test/              solver tests (vs brute-force oracle) + engine tests
 ```
 
 ## Known simplifications / stretch goals
 
-- **Per-showing granularity.** The price clock treats a tier's 5 showings as one pool. A bidder
-  who only accepts one showing can, rarely, find that specific showing full even though the tier
-  cleared in aggregate (constrained bidders are seated first to minimize this). Real version:
-  per-(showing, tier) clocks or a matching-aware clearing step.
-- **Different dates/times per showing** with separate demand curves — the original full design;
-  the engine's "acceptable showings" set is already the hook for it.
+- **Scale.** The exact solve runs in-browser: ~0.3s per tick at 2,500 bidders and 5 shows,
+  a few seconds at 10,000+. Ticks self-pace around the solve. A production backend would run
+  the same algorithm in a compiled solver and handle hundreds of thousands live.
+- **Closing dynamics.** Final prices come from the final book, so a real drop wants an activity
+  rule (raises any time; lowering locks earlier) or a soft close to blunt last-second swings.
+- **Rationing ties.** At the exact clearing price, tied marginal bidders are split by join order;
+  a lottery among the tied would be the fairer production rule.
+- **Different dates/times per showing** with separate demand curves — the per-cell market
+  already supports it; it's a labeling change.
 - Payments, auth, holds on cards at commit time, anti-bot/identity checks, seat *choice* within
   your tier (currently auto-assigned best-first), persistence (state is in-memory), and real-time
   push (currently 1s polling).
