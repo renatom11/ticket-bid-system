@@ -157,6 +157,37 @@
 
   .columns { display: grid; grid-template-columns: 1.2fr 1fr; gap: 1rem; align-items: start; }
   @media (max-width: 900px) { .columns { grid-template-columns: 1fr; } }
+  header .brand { display: flex; align-items: center; gap: 0.7rem; }
+  .ctlbar { display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; justify-content: flex-end; }
+  .ctlbar button { padding: 0.3rem 0.6rem; font-size: 0.78rem; }
+  .ctlbar .ctl-label { font-size: 0.82rem; color: var(--muted); margin-left: 0.5rem; }
+  .ctlbar .ctl-label b { color: var(--text); }
+  #results-panel { border-top: 1px dashed var(--line); margin-top: 1rem; padding-top: 0.8rem; }
+  /* Viewport-locked dashboard: on a big window everything fits with no page
+     scroll — panels scroll internally instead. Smaller windows flow normally. */
+  @media (min-width: 1100px) and (min-height: 740px) {
+    html, body { height: 100%; overflow: hidden; }
+    body { display: flex; flex-direction: column; }
+    header { padding: 0.5rem 1.2rem; align-items: center; }
+    h1 { font-size: 1.25rem; }
+    main {
+      flex: 1; min-height: 0; width: 100%; max-width: 1720px; margin: 0 auto;
+      padding: 0.8rem 1.2rem 0.9rem;
+      display: grid; grid-template-columns: minmax(430px, 560px) 1fr;
+      grid-template-rows: auto auto minmax(0, 1fr); gap: 0.8rem;
+      overflow: hidden;
+    }
+    .tier-board { grid-column: 1 / -1; grid-template-columns: repeat(5, minmax(0, 1fr)); margin-bottom: 0; }
+    .pending-bar { grid-column: 1 / -1; margin: 0; }
+    .columns { display: contents; }
+    .columns > .panel { margin: 0; min-height: 0; overflow-y: auto; }
+    .tier-card { padding: 0.5rem 0.7rem; }
+    .tier-card .tname { font-size: 0.82rem; }
+    .tier-card .price { font-size: 1.35rem; }
+    .spark { height: 22px; margin-top: 0.25rem; }
+    .you-here { font-size: 0.7rem; padding: 0.06rem 0.45rem; margin-top: 0.25rem; }
+    .switch-hint { margin-top: 0.25rem; }
+  }
   .panel { background: var(--panel); border-radius: 10px; padding: 1rem 1.1rem; margin-bottom: 1rem; }
   .hint { color: var(--muted); font-weight: 400; font-size: 0.78rem; text-transform: none; letter-spacing: 0; font-family: var(--body); }
 
@@ -224,13 +255,22 @@
 </style>
 
 <header>
-  <div>
-    <h1>Drop Clock <span class="dim">· Odyssey — Opening Night</span></h1>
-    <p class="sub">A ticket drop as an exactly-cleared auction: every (show, tier) gets a precise market price computed from everyone’s live bids each tick, flexibility earns a calculated discount, and no one who can afford a seat they accept is ever left out.</p>
-  </div>
-  <div class="status">
+  <div class="brand">
+    <h1>Drop Clock</h1>
     <span id="phase-pill" class="pill">not open</span>
     <span id="countdown" class="countdown"></span>
+  </div>
+  <div class="ctlbar">
+    <button id="start-btn" class="primary">Start the drop</button>
+    <button data-ctl="tick">Force tick</button>
+    <button data-ctl="reset" class="danger">Reset</button>
+    <span class="ctl-label">Bidders <b id="bot-count" class="mono">0</b></span>
+    <button data-ctl="bots" data-count="100">+100</button>
+    <button data-ctl="bots" data-count="1000">+1k</button>
+    <button data-ctl="bots" data-count="10000">+10k</button>
+    <span class="ctl-label">Shows <b id="show-count" class="mono">5</b></span>
+    <button data-ctl="shows" data-count="1">+1</button>
+    <button data-ctl="shows" data-count="10">+10</button>
   </div>
 </header>
 
@@ -274,36 +314,13 @@
         <p id="you-error" class="error"></p>
       </div>
 
-      <div class="controls">
-        <h2>Run the show</h2>
-        <div class="row-actions">
-          <button id="start-btn" class="primary">Start the drop</button>
-          <button data-ctl="tick">Force next tick</button>
-          <button data-ctl="reset" class="danger">Reset</button>
-        </div>
-        <div class="ctl-line">
-          <span class="ctl-label">Simulated bidders: <b id="bot-count" class="mono">0</b></span>
-          <button data-ctl="bots" data-count="100">Add 100</button>
-          <button data-ctl="bots" data-count="1000">Add 1,000</button>
-          <button data-ctl="bots" data-count="10000">Add 10,000</button>
-        </div>
-        <div class="ctl-line">
-          <span class="ctl-label">Shows: <b id="show-count" class="mono">5</b></span>
-          <button data-ctl="shows" data-count="1">Add 1</button>
-          <button data-ctl="shows" data-count="10">Add 10</button>
-        </div>
-        <p class="hint">Every tick re-solves the whole book for exact market-clearing prices — every (show, tier) has its own price, and truthful bidding is provably optimal. Bots anchor low and raise toward their true budgets while losing (segments span students at $16 up to $700+ superfans). Bigger crowds make each exact solve slower, so ticks self-pace.</p>
+      <div id="results-panel" hidden>
+        <h2>Settled</h2>
+        <div id="results"></div>
       </div>
     </section>
   </div>
-
-  <section id="results-panel" class="panel" hidden>
-    <h2>Settled</h2>
-    <div id="results"></div>
-  </section>
 </main>
-
-<footer>Everything runs in this page — no server, no accounts, nothing leaves your browser. Refresh to start over.</footer>
 
 <script id="engine-code">
 /* ---- built from src/ by web-demo/build.mjs — edit the sources, not this file ---- */
