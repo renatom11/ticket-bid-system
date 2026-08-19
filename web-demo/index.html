@@ -216,6 +216,12 @@
   .seat.t5 { background: var(--t5); }
   .seat.mine { outline: 2px solid var(--ivory); opacity: 1; transform: scale(1.45); }
   .aisle-gap { height: 11px; }
+  .seat.unsold { opacity: 0.16; }
+  .seat-detail {
+    min-height: 1.3em; margin-top: 0.45rem; font-family: var(--mono); font-size: 0.76rem;
+    color: var(--muted); font-variant-numeric: tabular-nums;
+  }
+  .seat-detail b { color: var(--text); }
   .legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; margin-top: 0.7rem; font-size: 0.78rem; color: var(--muted); }
   .legend .chip { width: 10px; height: 10px; border-radius: 2px; display: inline-block; margin-right: 5px; }
 
@@ -297,7 +303,9 @@
   <div class="columns">
     <section class="panel">
       <h2>Seat map <span class="hint">— <span id="seatmap-hint">5</span> simultaneous shows of this room; zones are ours</span></h2>
+      <div id="seat-shows" class="schip-row" hidden></div>
       <div class="seat-map"><div class="inner" id="seat-map"></div></div>
+      <div id="seat-detail" class="seat-detail"></div>
       <div id="map-legend" class="legend"></div>
     </section>
 
@@ -1092,6 +1100,43 @@ class Drop {
         }
       }
     }
+    // Settlement ledger: every seat in every show, its exact price, and
+    // whether it sold — plus the two summaries worth showing. Within one
+    // (show, tier) every seat has the same price by construction, so the
+    // meaningful spread is across shows.
+    const soldSeats = {};
+    for (const s of this.showings) soldSeats[s] = [];
+    for (const w of winners) soldSeats[w.assignment.showing].push(w.assignment.seat.row + w.assignment.seat.seat);
+    const soldCount = new Map();
+    for (const w of winners) {
+      const k = `${w.assignment.showing}|${w.assignment.tierId}`;
+      soldCount.set(k, (soldCount.get(k) ?? 0) + 1);
+    }
+    const byShow = {};
+    for (const s of this.showings) {
+      byShow[s] = {};
+      for (const t of TIER_ORDER) {
+        byShow[s][t] = {
+          price: this.cellPrices.get(`${s}|${t}`),
+          sold: soldCount.get(`${s}|${t}`) ?? 0,
+          seats: VENUE.capacityPerShowing[t],
+        };
+      }
+    }
+    const tierSpread = {};
+    for (const t of TIER_ORDER) {
+      const cells = this.showings.map((s) => byShow[s][t]);
+      const sold = cells.reduce((n, c) => n + c.sold, 0);
+      const revenue = cells.reduce((n, c) => n + c.sold * c.price, 0);
+      tierSpread[t] = {
+        min: Math.min(...cells.map((c) => c.price)),
+        max: Math.max(...cells.map((c) => c.price)),
+        // average over seats actually sold (falls back to the price average)
+        avg: sold ? Math.round(revenue / sold) : Math.round(cells.reduce((n, c) => n + c.price, 0) / cells.length),
+        sold,
+        revenue,
+      };
+    }
     return {
       rounds: this.round,
       winners: winners.length,
@@ -1099,6 +1144,9 @@ class Drop {
       revenue: winners.reduce((sum, b) => sum + b.assignment.pricePaid, 0),
       byTier,
       bySegment,
+      byShow,
+      tierSpread,
+      soldSeats,
     };
   }
 
@@ -1435,7 +1483,7 @@ const LOBBY_SECONDS = 15, ROUND_SECONDS = 8, SEED_BOTS = 2500, FLAT_PRICE = 30;
 // Your typed max for every tier, kept even while a tier is switched off, so
 // toggling a tier never destroys a number you entered.
 let myMaxes = {};
-let drop, youId, lobbyEndsAt, nextTickAt, timer, prevPrices, pendingTier;
+let drop, youId, lobbyEndsAt, nextTickAt, timer, prevPrices, pendingTier, selectedShow;
 
 const $ = (s) => document.querySelector(s);
 const secs = (t) => Math.max(0, Math.ceil((t - Date.now()) / 1000));
@@ -1445,6 +1493,7 @@ function reset() {
   clearTimeout(timer);
   timer = null; lobbyEndsAt = null; nextTickAt = null; youId = null; pendingTier = null;
   myMaxes = Object.fromEntries(TIERS.map((t) => [t.id, suggestedMax(t.id)]));
+  selectedShow = null;
   drop = new Drop({});
   prevPrices = { ...drop.prices };
   addBots(drop, SEED_BOTS);
@@ -1579,7 +1628,7 @@ function renderTierBoard(you) {
     board.innerHTML = TIERS.map((t) => '<div class="tier-card ' + t.id + '" data-tier="' + t.id + '"></div>').join('');
   }
   const editable = you && !you.withdrawn && drop.phase !== 'settled';
-  const comp = drop.phase === 'lobby' ? null : drop.competitionFor(you);
+  const comp = drop.phase === 'bidding' ? drop.competitionFor(you) : null;
   const scoped = you && !you.withdrawn && you.showings.length < drop.showings.length;
   const targetId = editable ? drop.targetTier(you) : you && you.assignment ? you.assignment.tierId : null;
   const targetIdx = targetId ? TIER_ORDER.indexOf(targetId) : -1;
@@ -1616,7 +1665,7 @@ function renderTierBoard(you) {
           ' seats' + (scoped ? ' in your shows' : '') + '</div>' +
           '<div class="demand-bar"><div class="' + (comp[tier.id].contenders > comp[tier.id].seats ? 'over' : '') +
           '" style="width:' + Math.min(1, comp[tier.id].contenders / Math.max(1, comp[tier.id].seats)) * 100 + '%"></div></div>'
-        : '<div class="meta">' + d + ' seated · ' + s + ' seats</div>' +
+        : '<div class="meta">' + (drop.phase === 'settled' ? d + ' sold · ' + s + ' seats' : d + ' seated · ' + s + ' seats') + '</div>' +
           '<div class="demand-bar"><div style="width:' + Math.min(1, d / s) * 100 + '%"></div></div>') +
       sparkline(hist) +
       footer;
@@ -1718,15 +1767,43 @@ addEventListener('resize', fitSeatMap);
 
 function renderSeatMap(you) {
   const el = $('#seat-map');
-  el.innerHTML = '<div class="screen">SCREEN</div>';
+  const settled = drop.phase === 'settled' && drop.results;
   const mine = you && you.assignment;
+  if (settled && (!selectedShow || !drop.showings.includes(selectedShow))) {
+    selectedShow = mine ? mine.showing : drop.showings[0];
+  }
+  const show = settled ? selectedShow : null;
+  const sold = settled ? new Set(drop.results.soldSeats[show] || []) : null;
+
+  // show switcher (settlement only)
+  const chips = $('#seat-shows');
+  chips.hidden = !settled;
+  if (settled) {
+    chips.innerHTML = drop.showings
+      .map((sh) => '<button type="button" class="schip' + (sh === show ? ' on' : '') + '" data-show="' + sh + '">' +
+        sh.replace('Showing ', '').replace('Show ', '') + '</button>')
+      .join('');
+  }
+
+  el.innerHTML = '<div class="screen">SCREEN</div>';
   for (const row of VENUE.rows) {
     const rowEl = document.createElement('div');
     rowEl.className = 'seat-row';
     let html = '<span class="rl">' + row.label + '</span>';
     row.seats.forEach((tierId, i) => {
-      const isMine = mine && mine.seat.row === row.label && mine.seat.seat === i + 1;
-      html += '<span class="seat ' + tierId + (isMine ? ' mine" title="Your seat' : '') + '"></span>';
+      const id = row.label + (i + 1);
+      const isMine = mine && (!settled || mine.showing === show) &&
+        mine.seat.row === row.label && mine.seat.seat === i + 1;
+      let cls = 'seat ' + tierId;
+      let attrs = ' data-seat="' + id + '" data-tier="' + tierId + '"';
+      if (settled) {
+        const cell = drop.results.byShow[show][tierId];
+        const isSold = sold.has(id);
+        if (!isSold) cls += ' unsold';
+        attrs += ' data-price="' + cell.price + '" data-sold="' + (isSold ? '1' : '0') + '"';
+      }
+      if (isMine) cls += ' mine';
+      html += '<span class="' + cls + '"' + attrs + '></span>';
     });
     html += '<span class="rl">' + row.label + '</span>';
     rowEl.innerHTML = html;
@@ -1737,7 +1814,30 @@ function renderSeatMap(you) {
       el.appendChild(gap);
     }
   }
+  $('#seat-detail').textContent = settled
+    ? 'Hover any seat for its exact price · ' + show
+    : '';
 }
+
+// Live seat readout: hover any seat to read its price and status.
+$('#seat-map').addEventListener('mouseover', (e) => {
+  const seat = e.target.closest('.seat');
+  if (!seat) return;
+  const t = tierById(seat.dataset.tier);
+  const price = seat.dataset.price;
+  $('#seat-detail').innerHTML =
+    '<b>' + seat.dataset.seat + '</b> · ' + t.name +
+    (price !== undefined
+      ? ' · <b>$' + price + '</b> · ' + (seat.dataset.sold === '1' ? 'sold' : 'unsold')
+      : ' · floor $' + t.floorPrice) +
+    (seat.classList.contains('mine') ? ' · YOUR SEAT' : '');
+});
+$('#seat-shows').addEventListener('click', (e) => {
+  const chip = e.target.closest('.schip');
+  if (!chip) return;
+  selectedShow = chip.dataset.show;
+  render();
+});
 
 function renderLegend() {
   $('#map-legend').innerHTML = TIERS.map((t) =>
@@ -1891,12 +1991,23 @@ function renderResults() {
   $('#results').innerHTML =
     '<p>' + r.winners + ' of ' + r.participants + ' bidders got seats in ' + r.rounds +
     ' rounds · total revenue <span class="mono">$' + r.revenue.toLocaleString() + '</span></p>' +
-    '<table class="results"><tr><th>Tier</th><th>Settled price</th><th>Seats sold</th></tr>' +
+    '<table class="results"><tr><th>Tier</th><th>Low</th><th>Avg paid</th><th>High</th><th>Seats sold</th></tr>' +
     TIERS.map((t) => {
+      const sp = r.tierSpread[t.id];
       const row = r.byTier[t.id];
-      const range = row.priceMin === row.priceMax ? '$' + row.priceMin : '$' + row.priceMin + '–$' + row.priceMax;
-      return '<tr><td>' + t.name + '</td><td class="num">' + range + '</td><td class="num">' + row.sold + ' / ' + row.supply + '</td></tr>';
+      return '<tr><td>' + t.name + '</td><td class="num">$' + sp.min + '</td><td class="num">$' + sp.avg +
+        '</td><td class="num">$' + sp.max + '</td><td class="num">' + row.sold + ' / ' + row.supply + '</td></tr>';
     }).join('') + '</table>' +
+    '<p class="hint" style="margin:0.4rem 0 0">Every seat in the same show and tier settled at the same price; the spread above is across shows. Pick a show on the seat map to price its seats one by one.</p>' +
+    (selectedShow
+      ? '<h2 style="margin-top:1.1rem">' + selectedShow + '</h2><table class="results">' +
+        '<tr><th>Tier</th><th>Price</th><th>Sold</th><th>Take</th></tr>' +
+        TIERS.map((t) => {
+          const c = r.byShow[selectedShow][t.id];
+          return '<tr><td>' + t.name + '</td><td class="num">$' + c.price + '</td><td class="num">' + c.sold + ' / ' + c.seats +
+            '</td><td class="num">$' + (c.sold * c.price).toLocaleString() + '</td></tr>';
+        }).join('') + '</table>'
+      : '') +
     (segRows
       ? '<h2 style="margin-top:1.1rem">Who got in, by segment</h2>' +
         '<p class="hint" style="margin:0 0 0.5rem">The crowd spans socioeconomic backgrounds — superfans here are willing to pay $300–700+ for prime seats, but under uniform pricing they pay the same settled price as the marginal winner.</p>' +

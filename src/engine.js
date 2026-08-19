@@ -274,6 +274,43 @@ export class Drop {
         }
       }
     }
+    // Settlement ledger: every seat in every show, its exact price, and
+    // whether it sold — plus the two summaries worth showing. Within one
+    // (show, tier) every seat has the same price by construction, so the
+    // meaningful spread is across shows.
+    const soldSeats = {};
+    for (const s of this.showings) soldSeats[s] = [];
+    for (const w of winners) soldSeats[w.assignment.showing].push(w.assignment.seat.row + w.assignment.seat.seat);
+    const soldCount = new Map();
+    for (const w of winners) {
+      const k = `${w.assignment.showing}|${w.assignment.tierId}`;
+      soldCount.set(k, (soldCount.get(k) ?? 0) + 1);
+    }
+    const byShow = {};
+    for (const s of this.showings) {
+      byShow[s] = {};
+      for (const t of TIER_ORDER) {
+        byShow[s][t] = {
+          price: this.cellPrices.get(`${s}|${t}`),
+          sold: soldCount.get(`${s}|${t}`) ?? 0,
+          seats: VENUE.capacityPerShowing[t],
+        };
+      }
+    }
+    const tierSpread = {};
+    for (const t of TIER_ORDER) {
+      const cells = this.showings.map((s) => byShow[s][t]);
+      const sold = cells.reduce((n, c) => n + c.sold, 0);
+      const revenue = cells.reduce((n, c) => n + c.sold * c.price, 0);
+      tierSpread[t] = {
+        min: Math.min(...cells.map((c) => c.price)),
+        max: Math.max(...cells.map((c) => c.price)),
+        // average over seats actually sold (falls back to the price average)
+        avg: sold ? Math.round(revenue / sold) : Math.round(cells.reduce((n, c) => n + c.price, 0) / cells.length),
+        sold,
+        revenue,
+      };
+    }
     return {
       rounds: this.round,
       winners: winners.length,
@@ -281,6 +318,9 @@ export class Drop {
       revenue: winners.reduce((sum, b) => sum + b.assignment.pricePaid, 0),
       byTier,
       bySegment,
+      byShow,
+      tierSpread,
+      soldSeats,
     };
   }
 

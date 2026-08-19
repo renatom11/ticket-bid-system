@@ -6,6 +6,7 @@ const FLAT_PRICE = 30;
 // Your typed max for every tier, kept even while a tier is switched off, so
 // toggling a tier never destroys a number you entered.
 let myMaxes = {};
+let selectedShow = null; // settlement seat explorer
 let bidderId = sessionStorage.getItem('bidderId');
 
 const $ = (sel) => document.querySelector(sel);
@@ -31,6 +32,7 @@ async function boot() {
   buildJoinForm();
   setInterval(refresh, 1000);
   wireButtons();
+  wireSeatExplorer();
 }
 
 async function refresh() {
@@ -88,7 +90,7 @@ function renderTierBoard() {
   }
   const you = state.you;
   const editable = you && !you.withdrawn && state.phase !== 'settled';
-  const comp = state.competition;
+  const comp = state.phase === 'bidding' ? state.competition : null;
   const scoped = you && !you.withdrawn && you.showings.length < state.showings.length;
   const targetId = editable ? you.targetTier : you && you.assignment ? you.assignment.tierId : null;
   const targetIdx = targetId ? tiers.findIndex((t) => t.id === targetId) : -1;
@@ -122,7 +124,7 @@ function renderTierBoard() {
         comp
           ? `<div class="meta" title="People who accept one of your shows in this tier and can afford it at today's price, against the seats in those shows. They may also be competing elsewhere — the market, not this ratio, sets the price.">${comp[tier.id].contenders.toLocaleString()} in the running · ${comp[tier.id].seats.toLocaleString()} seats${scoped ? ' in your shows' : ''}</div>
       <div class="demand-bar"><div class="${comp[tier.id].contenders > comp[tier.id].seats ? 'over' : ''}" style="width:${Math.min(1, comp[tier.id].contenders / Math.max(1, comp[tier.id].seats)) * 100}%"></div></div>`
-          : `<div class="meta">${d} seated · ${s} seats</div>
+          : `<div class="meta">${d} ${state.phase === 'settled' ? 'sold' : 'seated'} · ${s} seats</div>
       <div class="demand-bar"><div style="width:${ratio * 100}%"></div></div>`
       }
       ${sparkline(hist)}
@@ -212,8 +214,21 @@ function sparkline(hist) {
 
 function renderSeatMap() {
   const el = $('#seat-map');
-  el.innerHTML = '<div class="screen">SCREEN</div>';
+  const r = state.phase === 'settled' ? state.results : null;
   const mine = state.you?.assignment;
+  if (r && (!selectedShow || !state.showings.includes(selectedShow))) {
+    selectedShow = mine ? mine.showing : state.showings[0];
+  }
+  const show = r ? selectedShow : null;
+  const sold = r ? new Set(r.soldSeats[show] || []) : null;
+  const chips = $('#seat-shows');
+  chips.hidden = !r;
+  if (r) {
+    chips.innerHTML = state.showings
+      .map((sh) => `<button type="button" class="chip${sh === show ? ' on' : ''}" data-show="${sh}">${sh.replace(/^Showing /, '')}</button>`)
+      .join('');
+  }
+  el.innerHTML = '<div class="screen">SCREEN</div>';
   for (const row of venue.rows) {
     const rowEl = document.createElement('div');
     rowEl.className = 'seat-row';
@@ -221,9 +236,18 @@ function renderSeatMap() {
     row.seats.forEach((tierId, i) => {
       const s = document.createElement('span');
       s.className = `seat ${tierId}`;
-      if (mine && mine.seat && mine.seat.row === row.label && mine.seat.seat === i + 1) {
+      const id = `${row.label}${i + 1}`;
+      s.dataset.seat = id;
+      s.dataset.tier = tierId;
+      if (r) {
+        const cell = r.byShow[show][tierId];
+        const isSold = sold.has(id);
+        if (!isSold) s.classList.add('unsold');
+        s.dataset.price = cell.price;
+        s.dataset.sold = isSold ? '1' : '0';
+      }
+      if (mine && mine.seat && (!r || mine.showing === show) && mine.seat.row === row.label && mine.seat.seat === i + 1) {
         s.classList.add('mine');
-        s.title = 'Your seat';
       }
       rowEl.appendChild(s);
     });
@@ -235,6 +259,26 @@ function renderSeatMap() {
       el.appendChild(gap);
     }
   }
+}
+
+function wireSeatExplorer() {
+  $('#seat-map').addEventListener('mouseover', (e) => {
+    const seat = e.target.closest('.seat');
+    if (!seat) return;
+    const t = tierById(seat.dataset.tier);
+    const price = seat.dataset.price;
+    $('#seat-detail').innerHTML =
+      `<b>${seat.dataset.seat}</b> · ${t.name}` +
+      (price !== undefined ? ` · <b>$${price}</b> · ${seat.dataset.sold === '1' ? 'sold' : 'unsold'}` : ` · floor $${t.floorPrice}`) +
+      (seat.classList.contains('mine') ? ' · YOUR SEAT' : '');
+  });
+  $('#seat-shows').addEventListener('click', (e) => {
+    const chip = e.target.closest('.chip');
+    if (!chip) return;
+    selectedShow = chip.dataset.show;
+    renderSeatMap();
+    renderResults();
+  });
 }
 
 function renderLegend() {
@@ -427,16 +471,27 @@ function renderResults() {
   const r = state.results;
   const rows = tiers
     .map((t) => {
+      const sp = r.tierSpread[t.id];
       const row = r.byTier[t.id];
-      const range = row.priceMin === row.priceMax ? `$${row.priceMin}` : `$${row.priceMin}–$${row.priceMax}`;
-      return `<tr><td>${t.name}</td><td>${range}</td><td>${row.sold} / ${row.supply}</td></tr>`;
+      return `<tr><td>${t.name}</td><td>$${sp.min}</td><td>$${sp.avg}</td><td>$${sp.max}</td><td>${row.sold} / ${row.supply}</td></tr>`;
     })
     .join('');
+  const showTable = selectedShow && r.byShow[selectedShow]
+    ? `<h2 style="margin-top:1.1rem">${selectedShow}</h2>
+       <table class="results"><tr><th>Tier</th><th>Price</th><th>Sold</th><th>Take</th></tr>${tiers
+         .map((t) => {
+           const c = r.byShow[selectedShow][t.id];
+           return `<tr><td>${t.name}</td><td>$${c.price}</td><td>${c.sold} / ${c.seats}</td><td>$${(c.sold * c.price).toLocaleString()}</td></tr>`;
+         })
+         .join('')}</table>`
+    : '';
   $('#results').innerHTML = `
     <p>${r.winners} of ${r.participants} bidders got seats in ${r.rounds} rounds · total revenue $${r.revenue.toLocaleString()}</p>
     <table class="results">
-      <tr><th>Tier</th><th>Settled price</th><th>Seats sold</th></tr>${rows}
+      <tr><th>Tier</th><th>Low</th><th>Avg paid</th><th>High</th><th>Seats sold</th></tr>${rows}
     </table>
+    <p class="muted">Every seat in the same show and tier settled at the same price; the spread above is across shows. Pick a show on the seat map to price its seats one by one.</p>
+    ${showTable}
     ${segmentTable(r.bySegment)}
     ${flatStatHtml(r.revenue, r.winners)}`;
 }
