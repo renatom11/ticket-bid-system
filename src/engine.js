@@ -31,6 +31,7 @@ export class Drop {
 
     this.floors = Object.fromEntries(TIERS.map((t) => [t.id, t.floorPrice]));
     this.cellPrices = new Map(); // "show|tier" -> exact price (last solve)
+    this.cellBuyIn = new Map(); // "show|tier" -> minimum bid that seats you now
     this.assignments = new Map(); // bidderId -> {show, tierId, price}
     this.prices = { ...this.floors }; // per-tier MIN cell price (headline number)
     this.priceMax = { ...this.floors }; // per-tier max cell price
@@ -148,8 +149,9 @@ export class Drop {
     this.applySolveResult(solveMarket(this.bookInput()));
   }
 
-  applySolveResult({ prices, assignments }) {
+  applySolveResult({ prices, assignments, buyIn }) {
     this.cellPrices = prices;
+    this.cellBuyIn = buyIn ?? new Map();
     this.assignments = assignments;
     for (const t of TIER_ORDER) {
       let min = Infinity;

@@ -100,11 +100,14 @@ function renderTierBoard() {
     const clickable = editable && !isCurrent;
     let footer = '';
     if (isCurrent) {
-      footer = `<div class="you-here">✓ ${state.phase === 'settled' ? 'your tier' : "you're getting this tier"}</div>`;
+      footer = `<div class="you-here">✓ ${state.phase === 'settled' ? 'your tier' : 'seated — guaranteed at settlement'}</div>`;
     } else if (clickable) {
-      const idx = tiers.findIndex((t) => t.id === tier.id);
-      const verb = targetIdx === -1 ? 'jump in' : idx < targetIdx ? 'move up' : 'drop down';
-      footer = `<div class="switch-hint">Click to ${verb} — sets your bid to $${price}</div>`;
+      const b = tierBuyInOf(tier.id, you);
+      if (b !== null) {
+        const idx = tiers.findIndex((t) => t.id === tier.id);
+        const verb = targetIdx === -1 ? 'Buy in' : idx < targetIdx ? 'Buy up' : 'Buy down';
+        footer = `<div class="switch-hint">${verb} — $${b} guarantees a seat now</div>`;
+      }
     }
     const card = board.children[tiers.indexOf(tier)];
     card.className = `tier-card ${tier.id}${isCurrent ? ' current' : ''}${clickable ? ' clickable' : ''}${tier.id === pendingTier ? ' pending' : ''}`;
@@ -124,9 +127,10 @@ function renderTierBoard() {
 async function switchToTier(tierId) {
   const you = state?.you;
   if (!you || you.withdrawn || state.phase === 'settled') return;
+  const b = tierBuyInOf(tierId, you) ?? state.prices[tierId];
   const idx = tiers.findIndex((t) => t.id === tierId);
   const fallbacks = you.tierMaxes.filter((tm) => tiers.findIndex((t) => t.id === tm.tierId) > idx);
-  const tierMaxes = [{ tierId, maxPrice: state.prices[tierId] }, ...fallbacks];
+  const tierMaxes = [{ tierId, maxPrice: b }, ...fallbacks];
   try {
     await api('/api/update', { bidderId, tierMaxes });
     pendingTier = null;
@@ -139,6 +143,18 @@ async function switchToTier(tierId) {
 
 const shortName = (tierId) => tierById(tierId).name.split(' ·')[0];
 
+// Minimum bid that seats this user in the tier right now (cheapest across
+// the shows they accept).
+function tierBuyInOf(tierId, you) {
+  const shows = you && !you.withdrawn ? you.showings : state.showings;
+  let best = null;
+  for (const s of shows) {
+    const b = state.buyIn?.[`${s}|${tierId}`];
+    if (b !== null && b !== undefined && (best === null || b < best)) best = b;
+  }
+  return best;
+}
+
 function renderPendingBar() {
   const bar = $('#pending-bar');
   const you = state.you;
@@ -149,8 +165,9 @@ function renderPendingBar() {
   const idx = tiers.findIndex((t) => t.id === pendingTier);
   const released = you.tierMaxes.filter((tm) => tiers.findIndex((t) => t.id === tm.tierId) < idx).map((tm) => shortName(tm.tierId));
   const kept = you.tierMaxes.filter((tm) => tiers.findIndex((t) => t.id === tm.tierId) > idx).map((tm) => shortName(tm.tierId));
+  const bIn = tierBuyInOf(pendingTier, you);
   $('#pending-text').innerHTML =
-    `Switch to <b>${tierById(pendingTier).name}</b> at <b>$${state.prices[pendingTier]}</b>?` +
+    `Buy into <b>${tierById(pendingTier).name}</b> at <b>$${bIn ?? state.prices[pendingTier]}</b>? You'll be seated instantly — and guaranteed that spot at settlement if equilibrium arrives with you seated. If the market keeps climbing you may be outbid; raise your max to hold on.` +
     (released.length ? ` Releases ${released.join(' and ')}.` : '') +
     (kept.length ? ` Keeps ${kept.join(' and ')} as fallback.` : '');
   bar.hidden = false;
@@ -311,8 +328,8 @@ function renderYou() {
     st.innerHTML = `<div class="you-status-card">
       ${
         cur
-          ? `You're provisionally seated: <b>${cur.show} · ${tierById(cur.tierId).name}</b> at exactly <b>$${cur.price}</b>. If the drop settled now, that's yours.`
-          : `⚠️ At the current exact prices you're outbid everywhere you accept.${outbidHint}`
+          ? `🎟️ <span class="big">Seated</span> — <b>${cur.show} · ${tierById(cur.tierId).name}</b> at exactly <b>$${cur.price}</b>.<br>If equilibrium is reached, this seat is <b>guaranteed yours</b> at this price. You only lose it if the market moves past your max — raise it to hold on.`
+          : `You're <span class="big">standing aside</span> — at today's exact prices you're not buying, and that's a valid position: "at these prices, I'm good."${outbidHint} Click a tier card to buy in.`
       }</div>`;
   }
 

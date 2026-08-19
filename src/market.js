@@ -314,6 +314,67 @@ export function solveMarket({ showings, tiers, capacityPerShowing, bidders, hint
     p = extractPrices();
   }
 
+  // --- buy-in prices ---
+  // For every cell: the minimum bid that would actually seat a new bidder
+  // there right now. A[c] = cheapest way to free up one seat at c: use free
+  // capacity (0), evict the weakest occupant (their value, strict), or move
+  // an occupant to another cell k and recurse (swap cost + A[k]). Computed
+  // with one SPFA over the reverse exchange graph. buyIn = floor + A, plus
+  // $1 when the cheapest route ends in an eviction (which needs strict gain).
+  function computeBuyIn() {
+    const revN = Array.from({ length: nC }, () => []);
+    for (let c = 0; c < nC; c++) for (const k of neighbors[c]) revN[k].push(c);
+    const A = new Float64Array(nC).fill(Infinity);
+    const evEnd = new Uint8Array(nC);
+    const q = [];
+    const inq = new Uint8Array(nC);
+    let qh = 0;
+    for (let c = 0; c < nC; c++) {
+      let a = Infinity;
+      let ev = 0;
+      if (assigned[c].length < cap[c]) a = 0;
+      const t = topValid(evictHeaps[c], c);
+      if (t && t[0] < a) {
+        a = t[0];
+        ev = 1;
+      }
+      if (a < Infinity) {
+        A[c] = a;
+        evEnd[c] = ev;
+        q.push(c);
+        inq[c] = 1;
+      }
+    }
+    while (qh < q.length) {
+      const k = q[qh++];
+      inq[k] = 0;
+      for (const c of revN[k]) {
+        const pm = topValid(pairHeaps.get(c * nC + k), c);
+        if (!pm) continue;
+        const cand = pm[0] + A[k];
+        const betterCost = cand < A[c] - 1e-9;
+        const sameCostFreer = !betterCost && cand < A[c] + 1e-9 && evEnd[c] === 1 && evEnd[k] === 0;
+        if (betterCost || sameCostFreer) {
+          A[c] = Math.min(A[c], cand);
+          evEnd[c] = evEnd[k];
+          if (!inq[c]) {
+            inq[c] = 1;
+            q.push(c);
+          }
+        }
+      }
+    }
+    // Contested cells (any displacement cost, or an eviction even at zero
+    // cost) need a strictly winning bid: +$1 guarantees a seat in every
+    // optimum. Cells with genuine slack right now buy in at the floor.
+    const buyIn = new Map();
+    for (let c = 0; c < nC; c++) {
+      const contested = A[c] > 0 || evEnd[c] === 1;
+      buyIn.set(cellKey(c), A[c] === Infinity ? null : Math.round(floors[c] + A[c] + (contested ? 1 : 0)));
+    }
+    return buyIn;
+  }
+
   // Package results
   const prices = new Map();
   for (let c = 0; c < nC; c++) prices.set(cellKey(c), Math.round(p[c]));
@@ -327,5 +388,5 @@ export function solveMarket({ showings, tiers, capacityPerShowing, bidders, hint
       });
     }
   }
-  return { prices, assignments };
+  return { prices, assignments, buyIn: computeBuyIn() };
 }

@@ -72,6 +72,7 @@ function publicState(bidderId) {
     roundSeconds: ROUND_SECONDS,
     dropOpen: lobbyEndsAt !== null || drop.phase !== 'lobby',
     cells: Object.fromEntries(drop.cellPrices),
+    buyIn: Object.fromEntries(drop.cellBuyIn),
     you: you
       ? {
           id: you.id,
@@ -117,9 +118,11 @@ const server = http.createServer(async (req, res) => {
         }
         case '/api/update':
           drop.updateBidder(body.bidderId, body);
+          if (drop.phase === 'bidding') drop.solve(); // reflect the edit instantly
           return send(200, publicState(body.bidderId));
         case '/api/withdraw':
           drop.withdraw(body.bidderId);
+          if (drop.phase === 'bidding') drop.solve();
           return send(200, publicState(body.bidderId));
         case '/api/admin/open':
           openDrop();

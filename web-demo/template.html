@@ -344,7 +344,7 @@ function getWorker() {
   if (!solverWorker) {
     try {
       const src = document.getElementById('engine-code').textContent +
-        '\nonmessage = (e) => { const r = solveMarket(e.data); postMessage({ prices: [...r.prices], assignments: [...r.assignments] }); };';
+        '\nonmessage = (e) => { const r = solveMarket(e.data); postMessage({ prices: [...r.prices], assignments: [...r.assignments], buyIn: [...r.buyIn] }); };';
       solverWorker = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
     } catch {
       workerBroken = true;
@@ -357,7 +357,7 @@ function solveOffThread(book) {
   const w = getWorker();
   if (!w) return null;
   return new Promise((resolve, reject) => {
-    w.onmessage = (e) => resolve({ prices: new Map(e.data.prices), assignments: new Map(e.data.assignments) });
+    w.onmessage = (e) => resolve({ prices: new Map(e.data.prices), assignments: new Map(e.data.assignments), buyIn: new Map(e.data.buyIn) });
     w.onerror = (err) => { workerBroken = true; reject(err); };
     w.postMessage(book);
   });
@@ -367,6 +367,21 @@ function scheduleTick() {
   nextTickAt = Date.now() + ROUND_SECONDS * 1000;
   timer = setTimeout(doTick, ROUND_SECONDS * 1000);
 }
+async function resolveNow() {
+  if (drop.phase !== 'bidding' || solving) return;
+  solving = true;
+  try {
+    const result = await solveOffThread(drop.bookInput());
+    if (result) drop.applySolveResult(result);
+    else drop.solve();
+  } catch {
+    drop.solve();
+  } finally {
+    solving = false;
+  }
+  render();
+}
+
 async function doTick() {
   if (solving || drop.phase === 'settled') return;
   clearTimeout(timer);
@@ -443,11 +458,14 @@ function renderTierBoard(you) {
     const clickable = editable && !isCurrent;
     let footer = '';
     if (isCurrent) {
-      footer = '<div class="you-here">✓ ' + (drop.phase === 'settled' ? 'your tier' : 'you’re getting this tier') + '</div>';
+      footer = '<div class="you-here">✓ ' + (drop.phase === 'settled' ? 'your tier' : 'seated — guaranteed at settlement') + '</div>';
     } else if (clickable) {
-      const idx = TIER_ORDER.indexOf(tier.id);
-      const verb = targetIdx === -1 ? 'jump in' : idx < targetIdx ? 'move up' : 'drop down';
-      footer = '<div class="switch-hint">Click to ' + verb + ' — sets your bid to $' + price + '</div>';
+      const b = tierBuyIn(tier.id, you);
+      if (b !== null) {
+        const idx = TIER_ORDER.indexOf(tier.id);
+        const verb = targetIdx === -1 ? 'Buy in' : idx < targetIdx ? 'Buy up' : 'Buy down';
+        footer = '<div class="switch-hint">' + verb + ' — $' + b + ' guarantees a seat now</div>';
+      }
     }
     const card = board.children[TIERS.indexOf(tier)];
     card.className = 'tier-card ' + tier.id + (isCurrent ? ' current' : '') + (clickable ? ' clickable' : '') +
@@ -469,15 +487,29 @@ function renderTierBoard(you) {
 function switchToTier(tierId) {
   const you = youId && drop.bidders.get(youId);
   if (!you || you.withdrawn || drop.phase === 'settled') return;
+  const b = tierBuyIn(tierId, you) ?? drop.prices[tierId];
   const idx = TIER_ORDER.indexOf(tierId);
   const fallbacks = you.tierMaxes.filter((tm) => TIER_ORDER.indexOf(tm.tierId) > idx);
-  you.tierMaxes = [{ tierId, maxPrice: drop.prices[tierId] }, ...fallbacks];
+  you.tierMaxes = [{ tierId, maxPrice: b }, ...fallbacks];
+  drop.touch();
   pendingTier = null;
   $('#you-tiers').dataset.built = '';
   render();
 }
 
 const shortName = (tierId) => tierById(tierId).name.split(' ·')[0];
+
+// Minimum bid that seats this user in the tier right now (cheapest across
+// the shows they accept).
+function tierBuyIn(tierId, you) {
+  const shows = you && !you.withdrawn ? you.showings : drop.showings;
+  let best = null;
+  for (const sh of shows) {
+    const b = drop.cellBuyIn.get(sh + '|' + tierId);
+    if (b !== null && b !== undefined && (best === null || b < best)) best = b;
+  }
+  return best;
+}
 
 function renderPendingBar(you) {
   const bar = $('#pending-bar');
@@ -488,8 +520,11 @@ function renderPendingBar(you) {
   const idx = TIER_ORDER.indexOf(pendingTier);
   const released = you.tierMaxes.filter((tm) => TIER_ORDER.indexOf(tm.tierId) < idx).map((tm) => shortName(tm.tierId));
   const kept = you.tierMaxes.filter((tm) => TIER_ORDER.indexOf(tm.tierId) > idx).map((tm) => shortName(tm.tierId));
+  const you2 = youId && drop.bidders.get(youId);
+  const bIn = tierBuyIn(pendingTier, you2);
   $('#pending-text').innerHTML =
-    'Switch to <b>' + tierById(pendingTier).name + '</b> at <b class="mono">$' + drop.prices[pendingTier] + '</b>?' +
+    'Buy into <b>' + tierById(pendingTier).name + '</b> at <b class="mono">$' + (bIn ?? drop.prices[pendingTier]) +
+    '</b>? You’ll be seated instantly — and guaranteed that spot at settlement if equilibrium arrives with you seated. If the market keeps climbing you may be outbid; raise your max to hold on.' +
     (released.length ? ' Releases ' + released.join(' and ') + '.' : '') +
     (kept.length ? ' Keeps ' + kept.join(' and ') + ' as fallback.' : '');
   bar.hidden = false;
@@ -633,9 +668,10 @@ function renderYou(you) {
       if (best) outbidHint = ' Cheapest way in: ' + tierById(best.t).name + ' · ' + best.sh + ' at <b class="mono">$' + best.p + '</b>.';
     }
     st.innerHTML = '<div class="you-status-card">' + (cur
-      ? 'You’re provisionally seated: <b>' + cur.show + ' · ' + tierById(cur.tierId).name + '</b> at exactly <b class="mono">$' + cur.price +
-        '</b>. If the drop settled now, that’s yours.'
-      : '⚠️ At the current exact prices you’re outbid everywhere you accept.' + outbidHint) + '</div>';
+      ? '🎟️ <span class="big">Seated</span> — <b>' + cur.show + ' · ' + tierById(cur.tierId).name + '</b> at exactly <b class="mono">$' + cur.price +
+        '</b>.<br>If equilibrium is reached, this seat is <b>guaranteed yours</b> at this price. You only lose it if the market moves past your max — raise it to hold on.'
+      : 'You’re <span class="big">standing aside</span> — at today’s exact prices you’re not buying, and that’s a valid position: “at these prices, I’m good.”' + outbidHint +
+        ' Click a tier card to buy in.') + '</div>';
   }
 
   const tf = $('#you-tiers');
@@ -666,7 +702,9 @@ function updateMaxes() {
     return;
   }
   you.tierMaxes = cleaned;
+  drop.touch();
   render();
+  resolveNow();
 }
 
 function renderResults() {
@@ -714,12 +752,17 @@ $('#withdraw-btn').addEventListener('click', () => {
   }
   drop.touch();
   render();
+  resolveNow();
 });
 $('#tier-board').addEventListener('click', (e) => {
   const card = e.target.closest('.tier-card.clickable');
   if (card) { pendingTier = card.dataset.tier; render(); }
 });
-$('#confirm-switch').addEventListener('click', () => { if (pendingTier) switchToTier(pendingTier); });
+$('#confirm-switch').addEventListener('click', () => {
+  if (!pendingTier) return;
+  switchToTier(pendingTier);
+  resolveNow(); // seat lands on the exact book the buy-in was priced against
+});
 $('#cancel-switch').addEventListener('click', () => { pendingTier = null; render(); });
 $('#you-showings').addEventListener('click', (e) => {
   const chip = e.target.closest('.schip');
@@ -736,7 +779,9 @@ $('#you-showings').addEventListener('click', (e) => {
   }
   $('#you-error').textContent = '';
   you.showings = sel;
+  drop.touch();
   render();
+  resolveNow();
 });
 $('#you-tiers').addEventListener('click', (e) => {
   const btn = e.target.closest('button.step');

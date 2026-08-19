@@ -159,6 +159,32 @@ test('hint screening never changes the answer', () => {
   }
 });
 
+test('buy-in prices are exact: bidding buyIn+1 seats you, buyIn-1 does not', () => {
+  const rng = mulberry32(47);
+  for (let iter = 0; iter < 6; iter++) {
+    const inst = randomInstance(rng, { nBidders: 120, nShows: 2, nTiers: 2, cap: 8, maxV: 80 });
+    const { buyIn } = solveMarket(inst);
+    // probe a few cells
+    const keys = [...buyIn.keys()].filter((k) => buyIn.get(k) !== null);
+    for (const key of keys) {
+      const [show, tierId] = key.split('|');
+      const b = buyIn.get(key);
+      // At buyIn you're guaranteed in; at buyIn-2 you're strictly below the
+      // marginal alternative and can never be in an optimum. (buyIn-1 is the
+      // tie zone, deliberately unexposed.)
+      for (const [bid, expectSeated] of [[b, true], [b - 2, false]]) {
+        const probe = { id: '__probe', showings: [show], tierMaxes: [{ tierId, maxPrice: bid }] };
+        const withProbe = solveMarket({ ...inst, bidders: [...inst.bidders, probe] });
+        assert.equal(
+          withProbe.assignments.has('__probe'),
+          expectSeated,
+          `iter ${iter} ${key}: buyIn ${b}, probe at ${bid} should ${expectSeated ? '' : 'not '}be seated`
+        );
+      }
+    }
+  }
+});
+
 test('second-price flavor: the marginal loser sets the price', () => {
   const inst = {
     showings: ['S1'],
