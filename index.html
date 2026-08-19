@@ -1,0 +1,2183 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="A ticket drop as an exactly-cleared auction — join, bid against a behavioral crowd, and watch precise per-show prices form.">
+<meta property="og:title" content="Drop Clock">
+<meta property="og:description" content="Ticket drops as an exact clearing auction: everyone who can afford a seat they accept is guaranteed one, at a precisely computed price.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8E%9F%EF%B8%8F%3C/text%3E%3C/svg%3E">
+</head>
+<title>Drop Clock</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Public+Sans:wght@400;600&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<style>
+  :root {
+    --bg: #17141a;
+    --panel: #201d24;
+    --panel-2: #2a262f;
+    --line: #383340;
+    --text: #efe9e4;
+    --muted: #9d95a3;
+    --ivory: #f5efe6;
+    --t1: #b07fe8;
+    --t2: #44c076;
+    --t3: #4da3e0;
+    --t4: #e0b23a;
+    --t5: #e05a4e;
+    --display: "Barlow Condensed", "Arial Narrow", sans-serif;
+    --body: "Public Sans", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+  ::-webkit-scrollbar { width: 7px; height: 7px; }
+  ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+  ::-webkit-scrollbar-track { background: transparent; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--body);
+    font-size: 15px;
+    line-height: 1.5;
+  }
+  header {
+    display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; flex-wrap: wrap;
+    padding: 1.1rem 1.4rem 0.9rem;
+    border-bottom: 1px solid var(--line);
+  }
+  h1 {
+    margin: 0;
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 2rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  h1 .dim { color: var(--muted); }
+  .sub { margin: 0.1rem 0 0; color: var(--muted); font-size: 0.85rem; max-width: 60ch; }
+  h2 {
+    margin: 0 0 0.6rem;
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 1.25rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .status { display: flex; align-items: center; gap: 0.7rem; }
+  .pill {
+    font-family: var(--display); font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase;
+    font-size: 0.85rem; padding: 0.2rem 0.75rem; border-radius: 999px; background: var(--panel-2);
+  }
+  .pill.bidding { background: #24391f; color: #9ade7a; }
+  .pill.lobby { background: #1f3140; color: #7ac0e0; }
+  .pill.settled { background: #3a301c; color: #e0c47a; }
+  .countdown { font-family: var(--mono); font-size: 0.85rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  main { max-width: 1160px; margin: 0 auto; padding: 1.1rem 1.4rem 3.5rem; }
+
+  .tier-board {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));
+    gap: 0.8rem; margin-bottom: 1rem;
+  }
+  .tier-card {
+    background: var(--panel); border-radius: 10px; padding: 0.75rem 0.9rem;
+    border-top: 3px solid var(--muted);
+  }
+  .tier-card.t1 { border-color: var(--t1); }
+  .tier-card.t2 { border-color: var(--t2); }
+  .tier-card.t3 { border-color: var(--t3); }
+  .tier-card.t4 { border-color: var(--t4); }
+  .tier-card.t5 { border-color: var(--t5); }
+  .tier-card .tname { font-family: var(--display); font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; font-size: 1rem; }
+  .tier-card .price { font-family: var(--mono); font-weight: 600; font-size: 1.8rem; font-variant-numeric: tabular-nums; }
+  .price-flash { animation: flash 0.9s ease-out; }
+  @keyframes flash { 0% { color: var(--ivory); } 100% { color: inherit; } }
+  @media (prefers-reduced-motion: reduce) { .price-flash { animation: none; } }
+  .delta { font-family: var(--mono); font-size: 0.85rem; margin-left: 0.3rem; }
+  .delta.up { color: var(--t5); }
+  .delta.down { color: var(--t2); }
+  .meta { color: var(--muted); font-size: 0.78rem; margin-top: 0.15rem; font-variant-numeric: tabular-nums; }
+  .demand-bar { height: 6px; border-radius: 3px; background: var(--panel-2); margin-top: 0.5rem; overflow: hidden; }
+  .demand-bar > div { height: 100%; border-radius: 3px; background: var(--t3); }
+  .demand-bar > div.over { background: var(--t5); }
+  .spark { margin-top: 0.4rem; width: 100%; height: 34px; display: block; }
+  .spark polyline { fill: none; stroke: var(--muted); stroke-width: 1.8; }
+  .spark circle { fill: var(--ivory); }
+  .tier-card.clickable { cursor: pointer; }
+  .tier-card.clickable:hover { outline: 1px solid var(--muted); outline-offset: 1px; }
+  .tier-card.current { outline: 2px solid var(--ivory); outline-offset: 1px; }
+  .tier-card.pending { outline: 2px dashed var(--ivory); outline-offset: 1px; }
+  .pending-bar {
+    display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;
+    background: var(--panel); border: 1px dashed var(--ivory); border-radius: 10px;
+    padding: 0.7rem 1rem; margin: -0.2rem 0 1rem; font-size: 0.9rem;
+  }
+  .pending-bar .row-actions { margin-top: 0; }
+  .pending-bar[hidden] { display: none; }
+  .ctl-line {
+    display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;
+    margin-top: 0.7rem; font-size: 0.88rem;
+  }
+  .ctl-line .ctl-label { margin-right: 0.3rem; }
+  .ctl-line button { padding: 0.3rem 0.6rem; font-size: 0.78rem; }
+  .step {
+    padding: 0.15rem 0.4rem !important; font-size: 0.7rem !important;
+    font-family: var(--mono) !important; letter-spacing: 0 !important; text-transform: none !important;
+  }
+  .flat-stat { margin-top: 0.8rem; font-size: 0.92rem; }
+  .flat-stat b { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .flat-stat .lift-up { color: var(--t2); }
+  .flat-stat .lift-down { color: var(--t5); }
+  .tier-row {
+    border: 1px solid var(--line); border-radius: 8px;
+    padding: 0.3rem 0.5rem; margin: 0.3rem 0;
+    display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap;
+  }
+  .tier-row .trow-name {
+    display: flex; align-items: center; gap: 0.45rem;
+    flex: 1 1 140px; font-size: 0.85rem; cursor: pointer; margin: 0;
+  }
+  .tier-row .trow-max {
+    display: flex; align-items: center; gap: 0.25rem;
+    font-size: 0.8rem; white-space: nowrap; color: var(--muted);
+  }
+  .tier-row input[type="number"] { width: 62px; margin: 0; text-align: right; color: var(--text); padding: 0.25rem 0.35rem; }
+  .tier-row .steppers { display: flex; gap: 2px; }
+  .tier-row.off { opacity: 0.5; }
+  .tier-row.off .trow-name { text-decoration: line-through; text-decoration-color: var(--muted); }
+  .schip-row { display: flex; flex-wrap: wrap; gap: 0.35rem; padding: 0.2rem 0; }
+  .schip {
+    border-radius: 999px; padding: 0.22rem 0.68rem; font-size: 0.8rem;
+    font-family: var(--mono); letter-spacing: 0; text-transform: none;
+    background: var(--panel-2); border: 1px solid var(--line); cursor: pointer;
+  }
+  .schip.on { background: var(--ivory); color: #221e26; border-color: var(--ivory); font-weight: 600; }
+  .schip::before {
+    content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    margin-right: 5px; vertical-align: middle; background: var(--muted);
+  }
+  .schip[data-class="1"]::before { background: #4a6fa5; }
+  .schip[data-class="2"]::before { background: #4f96a8; }
+  .schip[data-class="3"]::before { background: #5eb37a; }
+  .schip[data-class="4"]::before { background: #d8a63f; }
+  .schip[data-class="5"]::before { background: #e05a4e; }
+  .class-key { font-size: 0.7rem; color: var(--muted); margin-top: 0.25rem; }
+  .you-here {
+    display: inline-block; margin-top: 0.35rem; padding: 0.1rem 0.5rem; border-radius: 999px;
+    background: var(--ivory); color: #221e26;
+    font-family: var(--display); font-weight: 700; font-size: 0.8rem;
+    letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .switch-hint { font-size: 0.72rem; color: var(--muted); margin-top: 0.35rem; }
+
+  .columns { display: grid; grid-template-columns: 1.2fr 1fr; gap: 1rem; align-items: start; }
+  @media (max-width: 900px) { .columns { grid-template-columns: 1fr; } }
+  header .brand { display: flex; align-items: center; gap: 0.7rem; }
+  .ctlbar { display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; justify-content: flex-end; }
+  .ctlbar button { padding: 0.3rem 0.6rem; font-size: 0.78rem; }
+  .ctlbar .ctl-label { font-size: 0.82rem; color: var(--muted); margin-left: 0.5rem; }
+  .ctlbar .ctl-label b { color: var(--text); }
+  #results-panel { border-top: 1px dashed var(--line); margin-top: 1rem; padding-top: 0.8rem; }
+  /* Viewport-locked dashboard: on a big window everything fits with no page
+     scroll — panels scroll internally instead. Smaller windows flow normally. */
+  @media (min-width: 1100px) and (min-height: 740px) {
+    html, body { height: 100%; overflow: hidden; }
+    body { display: flex; flex-direction: column; }
+    header { padding: 0.5rem 1.2rem; align-items: center; }
+    h1 { font-size: 1.25rem; }
+    main {
+      flex: 1; min-height: 0; width: 100%; max-width: 1720px; margin: 0 auto;
+      padding: 0.8rem 1.2rem 0.9rem;
+      display: grid; grid-template-columns: minmax(430px, 560px) 1fr;
+      grid-template-rows: auto auto minmax(0, 1fr); gap: 0.8rem;
+      overflow: hidden;
+    }
+    .tier-board { grid-column: 1 / -1; grid-row: 1; grid-template-columns: repeat(5, minmax(0, 1fr)); margin-bottom: 0; }
+    .pending-bar { grid-column: 1 / -1; grid-row: 2; margin: 0; }
+    .columns { display: contents; }
+    .columns > .panel { margin: 0; min-height: 0; overflow-y: auto; grid-row: 3; }
+    .columns > .panel:nth-child(1) { grid-column: 1; }
+    .columns > .panel:nth-child(2) { grid-column: 2; }
+    .tier-card { padding: 0.5rem 0.7rem; }
+    .tier-card .tname { font-size: 0.82rem; }
+    .tier-card .price { font-size: 1.35rem; }
+    .spark { height: 22px; margin-top: 0.25rem; }
+    .you-here { font-size: 0.7rem; padding: 0.06rem 0.45rem; margin-top: 0.25rem; }
+    .switch-hint { margin-top: 0.25rem; }
+  }
+  .panel { background: var(--panel); border-radius: 10px; padding: 1rem 1.1rem; margin-bottom: 1rem; }
+  .hint { color: var(--muted); font-weight: 400; font-size: 0.78rem; text-transform: none; letter-spacing: 0; font-family: var(--body); }
+
+  .seat-map { overflow: hidden; }
+  .seat-map .inner { --seat: 11px; }
+  .seat-map .screen {
+    background: linear-gradient(180deg, #6a6570, #4a4650); color: #ddd8e0; text-align: center; border-radius: 6px;
+    font-family: var(--display); font-size: 0.7rem; letter-spacing: 0.5em; padding: 2px 0 2px 0.5em; margin-bottom: 10px;
+  }
+  .seat-row { display: flex; align-items: center; gap: 2px; margin-bottom: 2px; justify-content: center; }
+  .seat-row .rl { width: 15px; font-family: var(--mono); font-size: 0.58rem; color: var(--muted); text-align: center; }
+  .seat-row { gap: var(--seat-gap, 2px); }
+  .seat { width: var(--seat, 11px); height: var(--seat, 11px); border-radius: 2.5px; flex: none; opacity: 0.85; }
+  .seat.t1 { background: var(--t1); }
+  .seat.t2 { background: var(--t2); }
+  .seat.t3 { background: var(--t3); }
+  .seat.t4 { background: var(--t4); }
+  .seat.t5 { background: var(--t5); }
+  .seat.mine { outline: 2px solid var(--ivory); opacity: 1; transform: scale(1.45); }
+  .aisle-gap { height: 11px; }
+  .seat.unsold { opacity: 0.16; }
+  .seat-detail {
+    min-height: 1.3em; margin-top: 0.45rem; font-family: var(--mono); font-size: 0.76rem;
+    color: var(--muted); font-variant-numeric: tabular-nums;
+  }
+  .seat-detail b { color: var(--text); }
+  .legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; margin-top: 0.7rem; font-size: 0.78rem; color: var(--muted); }
+  .legend .chip { width: 10px; height: 10px; border-radius: 2px; display: inline-block; margin-right: 5px; }
+
+  label { display: block; margin: 0.5rem 0; font-size: 0.88rem; }
+  input[type="text"], input[type="number"] {
+    width: 100%; padding: 0.45rem 0.6rem; margin-top: 0.25rem;
+    background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 6px;
+    font-family: var(--mono); font-size: 0.85rem;
+  }
+  input:focus-visible, button:focus-visible { outline: 2px solid var(--t2); outline-offset: 1px; }
+  fieldset { border: 1px solid var(--line); border-radius: 8px; margin: 0.7rem 0; padding: 0.5rem 0.8rem 0.7rem; }
+  legend { font-size: 0.76rem; color: var(--muted); padding: 0 0.3rem; }
+  .check-row { display: flex; align-items: center; gap: 0.5rem; margin: 0.35rem 0; font-size: 0.86rem; }
+  .check-row input[type="number"] { width: 84px; margin: 0; }
+  .check-row .tier-dot { width: 9px; height: 9px; border-radius: 2px; flex: none; }
+  .check-row .grow { flex: 1; }
+
+  button {
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+    padding: 0.5rem 0.95rem; border-radius: 7px; cursor: pointer;
+    font-family: var(--display); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; font-size: 0.9rem;
+  }
+  button:hover { border-color: var(--muted); }
+  button.primary { background: var(--ivory); border-color: var(--ivory); color: #221e26; }
+  button.danger { border-color: var(--t4); color: var(--t4); }
+  .row-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.6rem; }
+  .error { color: var(--t4); font-size: 0.85rem; min-height: 1.2em; margin: 0.4rem 0 0; }
+
+  .you-status-card {
+    background: var(--panel-2); border-radius: 8px; padding: 0.55rem 0.8rem; margin-bottom: 0.5rem;
+    font-size: 0.86rem; line-height: 1.45;
+  }
+  .big { font-family: var(--display); font-size: 1.3rem; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; }
+  .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  table.results { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+  table.results th, table.results td { text-align: left; padding: 0.35rem 0.6rem; border-bottom: 1px solid var(--line); }
+  table.results th { color: var(--muted); font-weight: 600; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; }
+  table.results td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  .controls { border-top: 1px dashed var(--line); margin-top: 1rem; padding-top: 0.8rem; }
+  .controls p { margin: 0.5rem 0 0; }
+  footer { text-align: center; color: var(--muted); font-size: 0.78rem; padding: 0 1.4rem 2rem; }
+  footer a { color: var(--muted); }
+</style>
+
+<header>
+  <div class="brand">
+    <h1>Drop Clock</h1>
+    <span id="phase-pill" class="pill">not open</span>
+    <span id="countdown" class="countdown"></span>
+  </div>
+  <div class="ctlbar">
+    <button id="start-btn" class="primary">Start the drop</button>
+    <button data-ctl="tick">Force tick</button>
+    <button data-ctl="reset" class="danger">Reset</button>
+    <span class="ctl-label">Bidders <b id="bot-count" class="mono">0</b></span>
+    <button data-ctl="bots" data-count="100">+100</button>
+    <button data-ctl="bots" data-count="1000">+1k</button>
+    <button data-ctl="bots" data-count="10000">+10k</button>
+    <span class="ctl-label">Shows <b id="show-count" class="mono">5</b></span>
+    <button data-ctl="shows" data-count="1">+1</button>
+    <button data-ctl="shows" data-count="10">+10</button>
+  </div>
+</header>
+
+<main>
+  <section id="tier-board" class="tier-board" aria-live="off"></section>
+
+  <div id="pending-bar" class="pending-bar" hidden>
+    <span id="pending-text"></span>
+    <div class="row-actions">
+      <button id="confirm-switch" class="primary">Confirm</button>
+      <button id="cancel-switch">Cancel</button>
+    </div>
+  </div>
+
+  <div class="columns">
+    <section class="panel">
+      <h2>Seat map <span class="hint">— <span id="seatmap-hint">5</span> simultaneous shows of this room; zones are ours</span></h2>
+      <div id="seat-shows" class="schip-row" hidden></div>
+      <div class="seat-map"><div class="inner" id="seat-map"></div></div>
+      <div id="seat-detail" class="seat-detail"></div>
+      <div id="map-legend" class="legend"></div>
+    </section>
+
+    <section class="panel">
+      <div id="join-panel">
+        <h2>Join the drop</h2>
+        <label>Your name <input type="text" id="join-name" placeholder="e.g. Renato"></label>
+        <fieldset id="join-tiers"><legend>Tiers you'd take, with the most you'd pay. If a tier's price climbs past your max, you fall into the next tier you checked.</legend></fieldset>
+        <p class="hint">You join for every show; trim which ones you'd attend afterward in Your Bid.</p>
+        <button id="join-btn" class="primary">Join drop</button>
+        <p id="join-error" class="error"></p>
+      </div>
+
+      <div id="you-panel" hidden>
+        <h2>Your bid</h2>
+        <div id="you-status"></div>
+        <fieldset id="you-showings"><legend>Shows — <span id="showing-count"></span></legend></fieldset>
+        <fieldset id="you-tiers"><legend>Your max per tier — what you'd pay at the most wanted showtime</legend></fieldset>
+        <div class="row-actions">
+          <button id="update-btn" class="primary">Update maxes</button>
+          <button id="withdraw-btn" class="danger">Drop out — zero my bids</button>
+        </div>
+        <p id="you-error" class="error"></p>
+      </div>
+
+      <div id="results-panel" hidden>
+        <h2>Settled</h2>
+        <div id="results"></div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script id="engine-code">
+/* ---- built from src/ by web-demo/build.mjs — edit the sources, not this file ---- */
+
+// AMC Lincoln Square style auditorium.
+// Rows A-M (no row I), cross-aisle between H and J.
+// Zones are our own, derived from geometry (row + distance from center),
+// not the seat map image's recommendations:
+//   T1 "Center of Center" : middle 12 seats of H and J — the core, guaranteed
+//   T2 "Prime Center"     : rest of the center blocks of G, H, J, K
+//   T3 "Great"            : sides of G-K, center of L and M
+//   T4 "Okay"             : centers of E and F, far sides of L and M
+//   T5 "Front"            : rows A-D, far edges of E and F
+
+const TIERS = [
+  { id: 't1', name: 'Tier 1 · Center of Center', floorPrice: 40 },
+  { id: 't2', name: 'Tier 2 · Prime Center', floorPrice: 30 },
+  { id: 't3', name: 'Tier 3 · Great', floorPrice: 25 },
+  { id: 't4', name: 'Tier 4 · Okay', floorPrice: 20 },
+  { id: 't5', name: 'Tier 5 · Front', floorPrice: 15 },
+];
+
+const TIER_ORDER = TIERS.map((t) => t.id);
+
+const ROW_DEFS = [
+  // [label, seatCount, zoneRule]
+  ['A', 28, () => 't5'],
+  ['B', 32, () => 't5'],
+  ['C', 36, () => 't5'],
+  ['D', 38, () => 't5'],
+  ['E', 38, sideRule(5, 't5', 't4')],
+  ['F', 38, sideRule(5, 't5', 't4')],
+  ['G', 38, sideRule(8, 't3', 't2')],
+  ['H', 38, coreRule],
+  ['J', 38, coreRule],
+  ['K', 38, sideRule(8, 't3', 't2')],
+  ['L', 38, sideRule(10, 't4', 't3')],
+  ['M', 36, sideRule(10, 't4', 't3')],
+];
+
+function sideRule(sideWidth, sideTier, centerTier) {
+  return (seatIdx, seatCount) =>
+    seatIdx < sideWidth || seatIdx >= seatCount - sideWidth ? sideTier : centerTier;
+}
+
+// The two rows at the cross-aisle: sides are T3, center block T2, and the
+// middle 6 seats are the Center of Center.
+function coreRule(seatIdx, seatCount) {
+  if (seatIdx < 8 || seatIdx >= seatCount - 8) return 't3';
+  return Math.abs(seatIdx - (seatCount - 1) / 2) <= 2.5 ? 't1' : 't2';
+}
+
+function buildVenue() {
+  const rows = ROW_DEFS.map(([label, seatCount, rule]) => ({
+    label,
+    seats: Array.from({ length: seatCount }, (_, i) => rule(i, seatCount)),
+  }));
+  const capacityPerShowing = Object.fromEntries(TIER_ORDER.map((t) => [t, 0]));
+  for (const row of rows) {
+    for (const tier of row.seats) capacityPerShowing[tier] += 1;
+  }
+  return { name: 'AMC Lincoln Square (prototype layout)', rows, capacityPerShowing };
+}
+
+const VENUE = buildVenue();
+
+// Seats within a tier, ordered by desirability (center-out within each row,
+// rows in a per-tier preference order). Used to hand out concrete seats at settlement.
+const TIER_ROW_PREFERENCE = {
+  t1: ['H', 'J'],
+  t2: ['H', 'J', 'G', 'K'],
+  t3: ['J', 'K', 'G', 'H', 'L', 'M'],
+  t4: ['F', 'E', 'L', 'M'],
+  t5: ['D', 'C', 'E', 'F', 'B', 'A'],
+};
+
+function seatsForTier(tierId) {
+  const seats = [];
+  for (const rowLabel of TIER_ROW_PREFERENCE[tierId]) {
+    const row = VENUE.rows.find((r) => r.label === rowLabel);
+    const indices = row.seats
+      .map((t, i) => (t === tierId ? i : -1))
+      .filter((i) => i >= 0)
+      .sort((a, b) => centerDistance(a, row.seats.length) - centerDistance(b, row.seats.length));
+    for (const i of indices) seats.push({ row: rowLabel, seat: i + 1 });
+  }
+  return seats;
+}
+
+function centerDistance(idx, count) {
+  return Math.abs(idx - (count - 1) / 2);
+}
+
+
+// Exact market clearing for a capacitated unit-demand assignment market
+// (Shapley-Shubik with item multiplicities).
+//
+// Input: bidders with acceptance sets (shows x tiers) and stated ceilings per
+// tier. Output: a maximum-surplus assignment plus the buyer-optimal (minimal)
+// clearing price for every (show, tier) cell, satisfying:
+//   - no cell is filled over capacity,
+//   - every assigned bidder is in a best cell for them at these prices,
+//   - every unassigned bidder has utility <= 0 at every cell they accept,
+//   - cells with unsold seats price at their floor,
+//   - no price can be lowered without breaking one of the above.
+//
+// Algorithm: incremental successive-shortest-path assignment over the cell
+// graph. Two structural optimizations keep it fast without giving up
+// exactness:
+//   1. Exchange-edge caching: for every ordered cell pair (c -> k) a lazy
+//      min-heap tracks the cheapest occupant swap, so a path search touches
+//      O(cells^2) edges instead of scanning every occupant's options.
+//   2. Hint screening: bidders who could not afford any of their cells at
+//      the previous solve's prices (the optional `hint`) are deferred; after
+//      solving the active set, deferred bidders are re-checked against the
+//      *resulting* prices and inserted if they can now afford in, repeating
+//      until none can — which is exactly the equilibrium condition, so the
+//      result is identical to solving everyone.
+// The minimal price vector is then extracted with a difference-constraint
+// closure over the optimal assignment.
+
+function solveMarket({ showings, tiers, capacityPerShowing, bidders, hint, showWeights }) {
+  const nT = tiers.length;
+  const nS = showings.length;
+  const nC = nS * nT; // cell index = showIdx * nT + tierIdx
+  const OUT = nC; // virtual "stay out" column
+  const floors = new Float64Array(nC);
+  const cap = new Int32Array(nC);
+  const tierIdx = new Map(tiers.map((t, i) => [t.id, i]));
+  const showIdx = new Map(showings.map((s, i) => [s, i]));
+  for (let si = 0; si < nS; si++) {
+    for (let ti = 0; ti < nT; ti++) {
+      floors[si * nT + ti] = tiers[ti].floorPrice;
+      cap[si * nT + ti] = capacityPerShowing[tiers[ti].id];
+    }
+  }
+  const cellKey = (c) => `${showings[Math.floor(c / nT)]}|${tiers[c % nT].id}`;
+  // How much a stated bid is worth at each show. A bid is what you'd pay for
+  // the most desirable showtime; a less-wanted showtime is worth
+  // proportionally less to you, so weights are <= 1 and nobody is ever
+  // charged more than the max they stated.
+  const wOf = new Float64Array(nS).fill(1);
+  if (showWeights) {
+    showings.forEach((s, i) => {
+      const w = showWeights[s];
+      if (typeof w === 'number' && w > 0) wOf[i] = w;
+    });
+  }
+
+  // Bidder records. Adjusted value at a cell = stated max - floor (seller
+  // reserve); a bidder is only ever seated at non-negative adjusted surplus.
+  const recs = bidders.map((b) => {
+    const accCells = [];
+    const accVals = [];
+    for (const tm of b.tierMaxes) {
+      const ti = tierIdx.get(tm.tierId);
+      if (ti === undefined) continue;
+      for (const s of b.showings) {
+        const si = showIdx.get(s);
+        if (si === undefined) continue;
+        const c = si * nT + ti;
+        accCells.push(c);
+        accVals.push(tm.maxPrice * wOf[si] - floors[c]);
+      }
+    }
+    return { id: b.id, accCells, accVals, cell: -1, aval: 0 };
+  });
+
+  const assigned = Array.from({ length: nC }, () => []);
+
+  // --- exchange-edge cache ---
+  // pairHeaps[c*nC+k]: min-heap of [swapCost, occupant, ] for moving some
+  // occupant of c to k. evictHeaps[c]: min-heap of [value, occupant] for
+  // pushing an occupant of c out entirely. Entries go stale when occupants
+  // move; they are validated (occupant.cell === c) lazily on peek.
+  const pairHeaps = new Map();
+  const neighbors = Array.from({ length: nC }, () => new Set());
+  const evictHeaps = Array.from({ length: nC }, () => []);
+
+  function heapPush(h, item) {
+    h.push(item);
+    let i = h.length - 1;
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (h[p][0] <= h[i][0]) break;
+      [h[p], h[i]] = [h[i], h[p]];
+      i = p;
+    }
+  }
+  function heapPopTop(h) {
+    const last = h.pop();
+    if (h.length) {
+      h[0] = last;
+      let i = 0;
+      for (;;) {
+        const l = 2 * i + 1;
+        const r = 2 * i + 2;
+        let m = i;
+        if (l < h.length && h[l][0] < h[m][0]) m = l;
+        if (r < h.length && h[r][0] < h[m][0]) m = r;
+        if (m === i) break;
+        [h[m], h[i]] = [h[i], h[m]];
+        i = m;
+      }
+    }
+  }
+  function topValid(h, c) {
+    while (h.length) {
+      if (h[0][1].cell === c) return h[0];
+      heapPopTop(h);
+    }
+    return null;
+  }
+  // Register x as an occupant of cell c (x.cell and x.aval already set).
+  function pushOccupant(x, c) {
+    for (let i = 0; i < x.accCells.length; i++) {
+      const k = x.accCells[i];
+      if (k === c) continue;
+      const key = c * nC + k;
+      let h = pairHeaps.get(key);
+      if (!h) {
+        h = [];
+        pairHeaps.set(key, h);
+        neighbors[c].add(k);
+      }
+      heapPush(h, [x.aval - x.accVals[i], x]);
+    }
+    heapPush(evictHeaps[c], [x.aval, x]);
+  }
+
+  // --- one row insertion: max-gain augmenting chain via SPFA ---
+  const dist = new Float64Array(nC + 1);
+  const inQueue = new Uint8Array(nC + 1);
+  const parFrom = new Int32Array(nC + 1);
+  const parBidder = new Array(nC + 1);
+
+  function insert(r) {
+    if (r.accCells.length === 0) return;
+    let bestEntry = -Infinity;
+    for (let i = 0; i < r.accVals.length; i++) if (r.accVals[i] > bestEntry) bestEntry = r.accVals[i];
+    if (bestEntry < 0) return; // can't clear any floor
+
+    dist.fill(Infinity);
+    inQueue.fill(0);
+    parFrom.fill(-2);
+    const queue = [];
+    let qHead = 0;
+    for (let i = 0; i < r.accCells.length; i++) {
+      const c = r.accCells[i];
+      const d = -r.accVals[i];
+      if (d < dist[c]) {
+        dist[c] = d;
+        parFrom[c] = -1; // entry by r itself
+        parBidder[c] = i; // acc index of the entry
+        if (!inQueue[c]) {
+          inQueue[c] = 1;
+          queue.push(c);
+        }
+      }
+    }
+
+    while (qHead < queue.length) {
+      const c = queue[qHead++];
+      inQueue[c] = 0;
+      if (assigned[c].length < cap[c]) continue; // free capacity: an exit
+      const d = dist[c];
+      for (const k of neighbors[c]) {
+        const t = topValid(pairHeaps.get(c * nC + k), c);
+        if (!t) continue;
+        const nd = d + t[0];
+        if (nd < dist[k] - 1e-9) {
+          dist[k] = nd;
+          parFrom[k] = c;
+          parBidder[k] = t[1];
+          if (!inQueue[k]) {
+            inQueue[k] = 1;
+            queue.push(k);
+          }
+        }
+      }
+      const ev = topValid(evictHeaps[c], c);
+      if (ev) {
+        const nd = d + ev[0] + 1e-7;
+        if (nd < dist[OUT] - 1e-9) {
+          dist[OUT] = nd;
+          parFrom[OUT] = c;
+          parBidder[OUT] = ev[1];
+        }
+      }
+    }
+
+    // Pick the best exit: any cell with residual capacity, or OUT (eviction).
+    let exit = -1;
+    let best = Infinity;
+    for (let c = 0; c < nC; c++) {
+      if (dist[c] < best - 1e-12 && assigned[c].length < cap[c]) {
+        best = dist[c];
+        exit = c;
+      }
+    }
+    if (dist[OUT] < best - 1e-9) {
+      best = dist[OUT];
+      exit = OUT;
+    }
+    if (exit === -1) return;
+    if (best > 1e-9) return; // no non-negative-gain way in
+    if (exit === OUT && best > -1e-9) return; // never zero-gain evictions
+
+    // Apply the augmenting chain from the exit back to the entry.
+    let cur = exit;
+    while (parFrom[cur] !== -1) {
+      const from = parFrom[cur];
+      const x = parBidder[cur];
+      const occ = assigned[from];
+      occ.splice(occ.indexOf(x), 1);
+      if (cur === OUT) {
+        x.cell = -1;
+        x.aval = 0;
+      } else {
+        x.cell = cur;
+        x.aval = x.accVals[x.accCells.indexOf(cur)];
+        assigned[cur].push(x);
+        pushOccupant(x, cur);
+      }
+      cur = from;
+    }
+    const accI = parBidder[cur];
+    r.cell = cur;
+    r.aval = r.accVals[accI];
+    assigned[cur].push(r);
+    pushOccupant(r, cur);
+  }
+
+  // --- buyer-optimal (minimal) price extraction ---
+  function extractPrices() {
+    const p = new Float64Array(nC);
+    for (let c = 0; c < nC; c++) p[c] = floors[c];
+    for (const r of recs) {
+      if (r.cell !== -1 || r.deferred) continue; // deferred bidders may not set price bounds until woken
+      for (let i = 0; i < r.accCells.length; i++) {
+        const c = r.accCells[i];
+        const m = r.accVals[i] + floors[c];
+        if (m > p[c]) p[c] = m;
+      }
+    }
+    let pass = 0;
+    for (;;) {
+      let changed = false;
+      for (let c = 0; c < nC; c++) {
+        for (const x of assigned[c]) {
+          const mc = x.aval + floors[c];
+          for (let i = 0; i < x.accCells.length; i++) {
+            const k = x.accCells[i];
+            if (k === c) continue;
+            const mk = x.accVals[i] + floors[k];
+            const need = p[c] + (mk - mc);
+            if (need > p[k] + 1e-9) {
+              p[k] = need;
+              changed = true;
+            }
+          }
+        }
+      }
+      if (!changed) break;
+      if (++pass > nC + 2) throw new Error('price closure did not converge (positive cycle)');
+    }
+    return p;
+  }
+
+  // Insert strongest bidders first: exchange chains stay short, and among
+  // equal bids the earlier joiner wins the marginal seat (stable sort over
+  // join order).
+  const byStrength = (list) =>
+    list
+      .map((r) => [r.accVals.length ? Math.max(...r.accVals) : -1, r])
+      .sort((a, b) => b[0] - a[0])
+      .map(([, r]) => r);
+
+  // Hint screening: defer bidders who couldn't afford anything at the
+  // previous prices; verify them against the actual result afterwards.
+  const hintMap = hint ? new Map(hint) : null;
+  let deferred = [];
+  const active = [];
+  if (hintMap) {
+    for (const r of recs) {
+      let affordable = false;
+      for (let i = 0; i < r.accCells.length; i++) {
+        const hp = hintMap.get(cellKey(r.accCells[i]));
+        if (hp === undefined || r.accVals[i] + floors[r.accCells[i]] > hp) {
+          affordable = true;
+          break;
+        }
+      }
+      if (affordable) {
+        active.push(r);
+      } else {
+        r.deferred = true;
+        deferred.push(r);
+      }
+    }
+  } else {
+    active.push(...recs);
+  }
+  for (const r of byStrength(active)) insert(r);
+
+  let p = extractPrices();
+  for (;;) {
+    const wake = deferred.filter((r) => {
+      if (r.cell !== -1) return false;
+      for (let i = 0; i < r.accCells.length; i++) {
+        if (r.accVals[i] + floors[r.accCells[i]] > p[r.accCells[i]]) return true;
+      }
+      return false;
+    });
+    if (wake.length === 0) break;
+    deferred = deferred.filter((r) => !wake.includes(r));
+    for (const r of wake) r.deferred = false;
+    for (const r of byStrength(wake)) insert(r);
+    p = extractPrices();
+  }
+
+  // --- buy-in prices ---
+  // For every cell: the minimum bid that would actually seat a new bidder
+  // there right now. A[c] = cheapest way to free up one seat at c: use free
+  // capacity (0), evict the weakest occupant (their value, strict), or move
+  // an occupant to another cell k and recurse (swap cost + A[k]). Computed
+  // with one SPFA over the reverse exchange graph. buyIn = floor + A, plus
+  // $1 when the cheapest route ends in an eviction (which needs strict gain).
+  function computeBuyIn() {
+    const revN = Array.from({ length: nC }, () => []);
+    for (let c = 0; c < nC; c++) for (const k of neighbors[c]) revN[k].push(c);
+    const A = new Float64Array(nC).fill(Infinity);
+    const evEnd = new Uint8Array(nC);
+    const q = [];
+    const inq = new Uint8Array(nC);
+    let qh = 0;
+    for (let c = 0; c < nC; c++) {
+      let a = Infinity;
+      let ev = 0;
+      if (assigned[c].length < cap[c]) a = 0;
+      const t = topValid(evictHeaps[c], c);
+      if (t && t[0] < a) {
+        a = t[0];
+        ev = 1;
+      }
+      if (a < Infinity) {
+        A[c] = a;
+        evEnd[c] = ev;
+        q.push(c);
+        inq[c] = 1;
+      }
+    }
+    while (qh < q.length) {
+      const k = q[qh++];
+      inq[k] = 0;
+      for (const c of revN[k]) {
+        const pm = topValid(pairHeaps.get(c * nC + k), c);
+        if (!pm) continue;
+        const cand = pm[0] + A[k];
+        const betterCost = cand < A[c] - 1e-9;
+        const sameCostFreer = !betterCost && cand < A[c] + 1e-9 && evEnd[c] === 1 && evEnd[k] === 0;
+        if (betterCost || sameCostFreer) {
+          A[c] = Math.min(A[c], cand);
+          evEnd[c] = evEnd[k];
+          if (!inq[c]) {
+            inq[c] = 1;
+            q.push(c);
+          }
+        }
+      }
+    }
+    // Contested cells (any displacement cost, or an eviction even at zero
+    // cost) need a strictly winning bid: +$1 guarantees a seat in every
+    // optimum. Cells with genuine slack right now buy in at the floor.
+    const buyIn = new Map();
+    for (let c = 0; c < nC; c++) {
+      const contested = A[c] > 0 || evEnd[c] === 1;
+      const needValue = A[c] === Infinity ? null : floors[c] + A[c] + (contested ? 1 : 0);
+      // Stated as a BID: your bid counts for bid x weight at this show.
+      buyIn.set(cellKey(c), needValue === null ? null : Math.ceil(needValue / wOf[Math.floor(c / nT)]));
+    }
+    return buyIn;
+  }
+
+  // Package results
+  const prices = new Map();
+  for (let c = 0; c < nC; c++) prices.set(cellKey(c), Math.round(p[c]));
+  const assignments = new Map();
+  for (let c = 0; c < nC; c++) {
+    for (const x of assigned[c]) {
+      assignments.set(x.id, {
+        show: showings[Math.floor(c / nT)],
+        tierId: tiers[c % nT].id,
+        price: Math.round(p[c]),
+      });
+    }
+  }
+  return { prices, assignments, buyIn: computeBuyIn() };
+}
+
+
+// Drop engine built on exact market clearing.
+//
+// One drop = N simultaneous shows of the venue, each split into seat tiers.
+// Every (show, tier) cell is its own market. On every tick the engine
+// re-solves the whole book — everyone's live acceptance sets and stated
+// ceilings — for the exact buyer-optimal clearing prices and provisional
+// assignment (src/market.js). There is no heuristic price walk: the numbers
+// published each tick are the precise prices at which demand fits supply for
+// the book as it stands. Ticks matter because people (and the demo bots)
+// react between them; when the book stops changing, the drop settles and the
+// last solve is final: winners are charged their cell's price and get seats.
+
+
+const STABLE_ROUNDS_TO_SETTLE = 2;
+
+// Every showtime belongs to one of five desirability classes. Everyone wants
+// a 5 most and a 1 least: a stated bid is what you'd pay at a class-5
+// showtime, and counts for proportionally less at weaker ones (weight <= 1,
+// so nobody is ever charged above the max they stated). `draw` also makes
+// better showtimes ones more people can make, mildly.
+const SHOW_CLASSES = {
+  1: { label: 'Undesirable', weight: 0.68, draw: 0.7, share: 0.15 },
+  2: { label: 'Moderately desirable', weight: 0.76, draw: 0.85, share: 0.2 },
+  3: { label: 'Desirable', weight: 0.84, draw: 1.0, share: 0.3 },
+  4: { label: 'Very desirable', weight: 0.92, draw: 1.2, share: 0.2 },
+  5: { label: 'Most desirable', weight: 1.0, draw: 1.4, share: 0.15 },
+};
+
+class Drop {
+  constructor({ name = 'Prototype Drop', showings, maxRounds = 60, rng = Math.random, showClasses } = {}) {
+    this.name = name;
+    this.rng = rng;
+    this.showings = [...(showings ?? ['Showing 1', 'Showing 2', 'Showing 3', 'Showing 4', 'Showing 5'])];
+    // Desirability class per showtime; pinnable for deterministic runs.
+    this.pinnedClass = showClasses ?? null;
+    this.showClass = new Map();
+    for (const s of this.showings) this.showClass.set(s, this.pinnedClass?.[s] ?? this.rollShowClass());
+    this.maxRounds = maxRounds;
+    this.phase = 'lobby'; // lobby -> bidding -> settled
+    this.round = 0;
+    this.stableRounds = 0;
+    this.bidders = new Map();
+    this.nextBidderId = 1;
+    this.bookVersion = 0;
+    this.lastSolvedVersion = -1;
+    this.results = null;
+
+    this.floors = Object.fromEntries(TIERS.map((t) => [t.id, t.floorPrice]));
+    this.cellPrices = new Map(); // "show|tier" -> exact price (last solve)
+    this.cellBuyIn = new Map(); // "show|tier" -> minimum bid that seats you now
+    this.assignments = new Map(); // bidderId -> {show, tierId, price}
+    this.prices = { ...this.floors }; // per-tier MIN cell price (headline number)
+    this.priceMax = { ...this.floors }; // per-tier max cell price
+    this.priceHistory = Object.fromEntries(TIER_ORDER.map((t) => [t, [this.floors[t]]]));
+    this.seated = Object.fromEntries(TIER_ORDER.map((t) => [t, 0]));
+    this.supply = Object.fromEntries(
+      TIER_ORDER.map((t) => [t, VENUE.capacityPerShowing[t] * this.showings.length])
+    );
+  }
+
+  touch() {
+    this.bookVersion += 1;
+  }
+
+  rollShowClass() {
+    let r = this.rng();
+    for (const [cls, def] of Object.entries(SHOW_CLASSES)) {
+      r -= def.share;
+      if (r <= 0) return Number(cls);
+    }
+    return 3;
+  }
+
+  classOf(show) {
+    return this.showClass.get(show) ?? 3;
+  }
+
+  weightOf(show) {
+    return SHOW_CLASSES[this.classOf(show)].weight;
+  }
+
+  showWeights() {
+    return Object.fromEntries(this.showings.map((s) => [s, this.weightOf(s)]));
+  }
+
+  addBidder({ name, showings, tierMaxes, segment }) {
+    if (this.phase === 'settled') throw new UserError('Drop already settled');
+    const accepted = (showings ?? []).filter((s) => this.showings.includes(s));
+    if (accepted.length === 0) throw new UserError('Pick at least one showing');
+    const cleaned = (tierMaxes ?? [])
+      .filter((tm) => TIER_ORDER.includes(tm.tierId) && Number(tm.maxPrice) >= 0)
+      .map((tm) => ({ tierId: tm.tierId, maxPrice: Math.floor(Number(tm.maxPrice)) }));
+    if (cleaned.length === 0) throw new UserError('Pick at least one tier with a max price');
+    const id = `b${this.nextBidderId++}`;
+    const bidder = {
+      id,
+      name: name?.trim() || `Bidder ${id}`,
+      showings: accepted,
+      tierMaxes: cleaned,
+      joinedAt: this.bidders.size,
+      segment: segment ?? null,
+      withdrawn: false,
+      pending: false, // in the drop but hasn't placed a bid yet
+      assignment: null, // final: {tierId, showing, seat, pricePaid}
+    };
+    this.bidders.set(id, bidder);
+    this.touch();
+    return bidder;
+  }
+
+  updateBidder(id, { tierMaxes, showings }) {
+    const bidder = this.mustGet(id);
+    if (this.phase === 'settled') throw new UserError('Drop already settled');
+    if (tierMaxes !== undefined) {
+      const cleaned = (tierMaxes ?? [])
+        .filter((tm) => TIER_ORDER.includes(tm.tierId) && Number(tm.maxPrice) >= 0)
+        .map((tm) => ({ tierId: tm.tierId, maxPrice: Math.floor(Number(tm.maxPrice)) }));
+      if (cleaned.length === 0) throw new UserError('Keep at least one tier, or withdraw instead');
+      bidder.tierMaxes = cleaned;
+    }
+    if (showings !== undefined) {
+      const accepted = (showings ?? []).filter((s) => this.showings.includes(s));
+      if (accepted.length === 0) throw new UserError('Keep at least one showing');
+      bidder.showings = accepted;
+    }
+    this.touch();
+    return bidder;
+  }
+
+  withdraw(id) {
+    const bidder = this.mustGet(id);
+    if (this.phase === 'settled') throw new UserError('Drop already settled');
+    bidder.withdrawn = true;
+    this.touch();
+    return bidder;
+  }
+
+  mustGet(id) {
+    const bidder = this.bidders.get(id);
+    if (!bidder) throw new UserError('Unknown bidder');
+    return bidder;
+  }
+
+  // Add more simultaneous shows mid-drop, growing every tier's supply.
+  // Bidders who accepted every show stay fully flexible; hand-picked
+  // subsets are kept as-is.
+  addShowings(count) {
+    if (this.phase === 'settled') throw new UserError('Drop already settled');
+    const prevAll = this.showings.length;
+    const added = [];
+    for (let i = 0; i < count; i++) {
+      const name = `Showing ${this.showings.length + 1}`;
+      this.showings.push(name);
+      this.showClass.set(name, this.pinnedClass?.[name] ?? this.rollShowClass());
+      added.push(name);
+    }
+    for (const b of this.bidders.values()) {
+      if (b.showings.length === prevAll) b.showings.push(...added);
+    }
+    for (const t of TIER_ORDER) this.supply[t] += VENUE.capacityPerShowing[t] * count;
+    this.touch();
+    return added;
+  }
+
+  openBidding() {
+    if (this.phase !== 'lobby') return;
+    this.phase = 'bidding';
+  }
+
+  // The solver's input for the current book — also used by the browser build
+  // to ship the book to a Web Worker. Last tick's prices ride along as a
+  // screening hint (the solver verifies against the real result, so this
+  // never changes the answer, only the speed).
+  bookInput() {
+    return {
+      showings: this.showings,
+      tiers: TIERS,
+      capacityPerShowing: VENUE.capacityPerShowing,
+      showWeights: this.showWeights(),
+      hint: this.cellPrices.size ? [...this.cellPrices] : undefined,
+      bidders: [...this.bidders.values()]
+        .filter((b) => !b.withdrawn && !b.pending)
+        .map((b) => ({ id: b.id, showings: b.showings, tierMaxes: b.tierMaxes })),
+    };
+  }
+
+  // Exact clearing of the current book, synchronously.
+  solve() {
+    this.applySolveResult(solveMarket(this.bookInput()));
+  }
+
+  applySolveResult({ prices, assignments, buyIn }) {
+    this.cellPrices = prices;
+    this.cellBuyIn = buyIn ?? new Map();
+    this.assignments = assignments;
+    for (const t of TIER_ORDER) {
+      let min = Infinity;
+      let max = -Infinity;
+      for (const s of this.showings) {
+        const p = prices.get(`${s}|${t}`);
+        if (p < min) min = p;
+        if (p > max) max = p;
+      }
+      this.prices[t] = min;
+      this.priceMax[t] = max;
+      this.seated[t] = 0;
+    }
+    for (const a of assignments.values()) this.seated[a.tierId] += 1;
+  }
+
+  // Provisional standing of one bidder in the last solve.
+  currentOf(bidder) {
+    return this.assignments.get(bidder.id) ?? null;
+  }
+
+  targetTier(bidder) {
+    return this.assignments.get(bidder.id)?.tierId ?? null;
+  }
+
+  // One tick: re-solve the book, publish, settle once the book has been
+  // still for two consecutive ticks (or maxRounds is hit).
+  tick() {
+    if (this.phase === 'lobby') this.openBidding();
+    if (this.phase !== 'bidding') return this.summary();
+    const snapshotVersion = this.bookVersion;
+    this.solve();
+    return this.finishTick(snapshotVersion);
+  }
+
+  // Async variant for the browser: the caller snapshots bookInput() and its
+  // version, solves elsewhere (a Web Worker), then applies the result here.
+  // Edits made while the solve was in flight keep the book "changed" so the
+  // next tick picks them up.
+  tickWith(result, snapshotVersion) {
+    if (this.phase === 'lobby') this.openBidding();
+    if (this.phase !== 'bidding') return this.summary();
+    this.applySolveResult(result);
+    return this.finishTick(snapshotVersion);
+  }
+
+  finishTick(snapshotVersion) {
+    this.round += 1;
+    const unchanged = snapshotVersion === this.lastSolvedVersion;
+    this.lastSolvedVersion = snapshotVersion;
+    for (const t of TIER_ORDER) this.priceHistory[t].push(this.prices[t]);
+    this.stableRounds = unchanged ? this.stableRounds + 1 : 0;
+    if (this.stableRounds >= STABLE_ROUNDS_TO_SETTLE || this.round >= this.maxRounds) {
+      this.settle();
+    }
+    return this.summary();
+  }
+
+  // Finalize: the last solve is the outcome. Winners are charged their
+  // cell's exact price and receive concrete seats (best seats first within
+  // each cell, earlier joiners first).
+  settle() {
+    if (this.phase === 'settled') return this.results;
+    if (this.assignments.size === 0 && this.bidders.size > 0) this.solve();
+
+    const seatPools = new Map(); // "show|tier" -> ordered seats
+    const winnersByCell = new Map();
+    for (const [id, a] of this.assignments) {
+      const b = this.bidders.get(id);
+      const key = `${a.show}|${a.tierId}`;
+      if (!winnersByCell.has(key)) winnersByCell.set(key, []);
+      winnersByCell.get(key).push(b);
+    }
+    for (const [key, winners] of winnersByCell) {
+      const [show, tierId] = key.split('|');
+      if (!seatPools.has(tierId)) seatPools.set(tierId, seatsForTier(tierId));
+      const seats = seatPools.get(tierId).slice();
+      winners.sort((a, b) => a.joinedAt - b.joinedAt);
+      for (const w of winners) {
+        const a = this.assignments.get(w.id);
+        w.assignment = {
+          tierId,
+          showing: show,
+          seat: seats.shift(),
+          pricePaid: a.price,
+        };
+      }
+    }
+
+    this.phase = 'settled';
+    this.results = this.buildResults();
+    return this.results;
+  }
+
+  buildResults() {
+    const winners = [...this.bidders.values()].filter((b) => b.assignment);
+    const byTier = Object.fromEntries(
+      TIER_ORDER.map((t) => [
+        t,
+        {
+          priceMin: this.prices[t],
+          priceMax: this.priceMax[t],
+          sold: winners.filter((b) => b.assignment.tierId === t).length,
+          supply: this.supply[t],
+        },
+      ])
+    );
+    const active = [...this.bidders.values()].filter((b) => !b.withdrawn);
+    let bySegment = null;
+    if (active.some((b) => b.segment)) {
+      bySegment = {};
+      for (const b of active) {
+        const key = b.segment ?? 'unlabeled';
+        const row = (bySegment[key] ??= { bidders: 0, winners: 0, totalPaid: 0 });
+        row.bidders += 1;
+        if (b.assignment) {
+          row.winners += 1;
+          row.totalPaid += b.assignment.pricePaid;
+        }
+      }
+    }
+    // Settlement ledger: every seat in every show, its exact price, and
+    // whether it sold — plus the two summaries worth showing. Within one
+    // (show, tier) every seat has the same price by construction, so the
+    // meaningful spread is across shows.
+    const soldSeats = {};
+    for (const s of this.showings) soldSeats[s] = [];
+    for (const w of winners) soldSeats[w.assignment.showing].push(w.assignment.seat.row + w.assignment.seat.seat);
+    const soldCount = new Map();
+    for (const w of winners) {
+      const k = `${w.assignment.showing}|${w.assignment.tierId}`;
+      soldCount.set(k, (soldCount.get(k) ?? 0) + 1);
+    }
+    const byShow = {};
+    for (const s of this.showings) {
+      byShow[s] = { __class: this.classOf(s) };
+      for (const t of TIER_ORDER) {
+        byShow[s][t] = {
+          price: this.cellPrices.get(`${s}|${t}`),
+          sold: soldCount.get(`${s}|${t}`) ?? 0,
+          seats: VENUE.capacityPerShowing[t],
+        };
+      }
+    }
+    const showClasses = Object.fromEntries(this.showings.map((s) => [s, this.classOf(s)]));
+    const tierSpread = {};
+    for (const t of TIER_ORDER) {
+      const cells = this.showings.map((s) => byShow[s][t]);
+      const sold = cells.reduce((n, c) => n + c.sold, 0);
+      const revenue = cells.reduce((n, c) => n + c.sold * c.price, 0);
+      tierSpread[t] = {
+        min: Math.min(...cells.map((c) => c.price)),
+        max: Math.max(...cells.map((c) => c.price)),
+        // average over seats actually sold (falls back to the price average)
+        avg: sold ? Math.round(revenue / sold) : Math.round(cells.reduce((n, c) => n + c.price, 0) / cells.length),
+        sold,
+        revenue,
+      };
+    }
+    return {
+      rounds: this.round,
+      winners: winners.length,
+      participants: active.length,
+      revenue: winners.reduce((sum, b) => sum + b.assignment.pricePaid, 0),
+      byTier,
+      bySegment,
+      byShow,
+      tierSpread,
+      soldSeats,
+      showClasses,
+    };
+  }
+
+  // Everyone in the drop, whether or not they have a live bid.
+  get participantCount() {
+    return this.bidders.size;
+  }
+
+  // Live competition for one bidder's scope: for each tier, how many people
+  // could take one of the seats this bidder is going for (they accept one of
+  // the same shows in that tier and can afford it at today's price), against
+  // how many such seats exist. Exact for the scope; a contender may also be
+  // competing elsewhere, which is why the market — not this number — sets the
+  // price.
+  competitionFor(bidder) {
+    const myShows = new Set(bidder && !bidder.withdrawn ? bidder.showings : this.showings);
+    const out = {};
+    for (const t of TIER_ORDER) {
+      out[t] = { contenders: 0, seats: myShows.size * VENUE.capacityPerShowing[t] };
+    }
+    for (const b of this.bidders.values()) {
+      if (b.withdrawn || b.pending) continue;
+      for (const tm of b.tierMaxes) {
+        const row = out[tm.tierId];
+        if (!row) continue;
+        for (const s of b.showings) {
+          if (!myShows.has(s)) continue;
+          const p = this.cellPrices.get(`${s}|${tm.tierId}`);
+          if (p !== undefined && tm.maxPrice * this.weightOf(s) >= p) {
+            row.contenders += 1;
+            break;
+          }
+        }
+      }
+    }
+    return out;
+  }
+
+  // Money the drop would collect if it settled right now.
+  committedTotal() {
+    let total = 0;
+    for (const a of this.assignments.values()) total += a.price;
+    return { total, bidders: this.assignments.size };
+  }
+
+  summary() {
+    return {
+      phase: this.phase,
+      round: this.round,
+      prices: { ...this.prices },
+      priceMax: { ...this.priceMax },
+      demand: { ...this.seated },
+      supply: { ...this.supply },
+      results: this.results,
+    };
+  }
+}
+
+class UserError extends Error {}
+
+
+// Demo crowd: bidders drawn from socioeconomic segments, with a behavioral
+// model aimed at realism rather than convenience:
+//
+// - Availability: each bot can attend a uniformly random NUMBER of shows
+//   (1..N with equal probability), and WHICH shows is drawn weighted by
+//   per-show popularity (some showtimes are simply hotter), so per-show
+//   price premiums emerge naturally.
+// - Two-zone valuations per tier: a COMFORT price (what they think the tier
+//   is worth — reached quickly while losing) and a STRETCH ceiling
+//   (comfort x (1 + tolerance), tolerance drawn per tier per bidder — the
+//   zone they grind into reluctantly before giving up).
+// - Attention: bots only react to a tick with some probability (people
+//   don't watch every refresh).
+// - FOMO: a tier whose price jumped since a bot last looked triggers
+//   bigger raises.
+// - Quit hazard: the longer a bot keeps losing, the likelier they walk;
+//   losing with every accepted cell priced beyond their stretch is certain
+//   exit.
+// - Late joiners: a slice of the crowd only shows up a few ticks into the
+//   bidding.
+//
+// Segments set the money scale (lognormal budgets with real long tails) and
+// the personality ranges (tolerance, attention).
+
+
+const SEGMENTS = [
+  {
+    id: 'superfan',
+    name: 'Superfans / high income',
+    weight: 0.07,
+    budget: { median: 260, sigma: 0.45 },
+    topTiers: [['t1', 0.7], ['t2', 0.3]],
+    maxDepth: 2, // would rather skip than sit up front
+    tol: [0.5, 1.0], // will stretch far past comfort for the thing they love
+    attention: [0.8, 1.0],
+  },
+  {
+    id: 'comfortable',
+    name: 'Comfortable professionals',
+    weight: 0.18,
+    budget: { median: 110, sigma: 0.4 },
+    topTiers: [['t1', 0.1], ['t2', 0.5], ['t3', 0.4]],
+    maxDepth: 3,
+    tol: [0.3, 0.7],
+    attention: [0.6, 1.0],
+  },
+  {
+    id: 'middle',
+    name: 'Middle income',
+    weight: 0.4,
+    budget: { median: 55, sigma: 0.45 },
+    topTiers: [['t2', 0.3], ['t3', 0.4], ['t4', 0.3]],
+    maxDepth: 3,
+    tol: [0.2, 0.5],
+    attention: [0.4, 0.9],
+  },
+  {
+    id: 'budget',
+    name: 'Budget-conscious',
+    weight: 0.25,
+    budget: { median: 28, sigma: 0.4 },
+    topTiers: [['t3', 0.15], ['t4', 0.5], ['t5', 0.35]],
+    maxDepth: 4, // any seat beats no seat
+    tol: [0.1, 0.35],
+    attention: [0.3, 0.8],
+  },
+  {
+    id: 'student',
+    name: 'Students / lowest budget',
+    weight: 0.1,
+    budget: { median: 16, sigma: 0.35 },
+    topTiers: [['t4', 0.3], ['t5', 0.7]],
+    maxDepth: 4,
+    tol: [0.05, 0.3],
+    attention: [0.3, 0.7],
+  },
+];
+
+// Comfort drops with each step down from the top-choice tier.
+const STEP_DOWN = 0.7;
+const LATE_JOINER_SHARE = 0.25;
+const FOMO_TRIGGER = 1.08; // price grew >8% since last look
+const FOMO_MULT = 1.6;
+
+const floorOf = Object.fromEntries(TIERS.map((t) => [t.id, t.floorPrice]));
+
+// How likely a bot is to be free for each show. Driven by the show's
+// desirability class (a Friday-night slot is one more people can make) with a
+// little personal noise, so availability and desire point the same way
+// without being identical.
+function popularity(drop, rng) {
+  const pop = (drop.__showPopularity ??= new Map());
+  for (const s of drop.showings) {
+    if (!pop.has(s)) {
+      pop.set(s, SHOW_CLASSES[drop.classOf(s)].draw * Math.exp(gaussian(rng) * 0.25));
+    }
+  }
+  return pop;
+}
+
+function addBots(drop, count, rng = Math.random) {
+  const pop = popularity(drop, rng);
+  const added = [];
+  for (let i = 0; i < count; i++) {
+    const segment = pickWeighted(SEGMENTS.map((s) => [s, s.weight]), rng);
+    const topTier = pickWeighted(segment.topTiers, rng);
+    const startIdx = TIER_ORDER.indexOf(topTier);
+    const depth = Math.min(1 + Math.floor(rng() * segment.maxDepth), TIER_ORDER.length - startIdx);
+    const budget = lognormal(segment.budget.median, segment.budget.sigma, rng);
+
+    const comfort = {};
+    const stretch = {};
+    const tierMaxes = [];
+    for (let d = 0; d < depth; d++) {
+      const tierId = TIER_ORDER[startIdx + d];
+      const c = Math.max(5, Math.round(budget * STEP_DOWN ** d));
+      // tolerance to go up, drawn separately for every tier
+      const tol = segment.tol[0] + rng() * (segment.tol[1] - segment.tol[0]);
+      comfort[tierId] = c;
+      stretch[tierId] = Math.max(c, Math.round(c * (1 + tol)));
+      // anchor low: open near the floor, never above comfort
+      tierMaxes.push({
+        tierId,
+        maxPrice: Math.max(1, Math.min(c, floorOf[tierId] + Math.floor(rng() * 6))),
+      });
+    }
+
+    // availability: uniform 1..N show count, popularity-weighted picks
+    const k = 1 + Math.floor(rng() * drop.showings.length);
+    const showings = pickShowsWeighted(drop.showings, k, pop, rng);
+
+    const bidder = drop.addBidder({
+      name: `Bot ${drop.nextBidderId}`,
+      showings,
+      tierMaxes,
+      segment: segment.id,
+    });
+    bidder.bot = {
+      comfort,
+      stretch,
+      attention: segment.attention[0] + rng() * (segment.attention[1] - segment.attention[0]),
+      quit: false,
+      losingTicks: 0,
+      lastSeen: {},
+      fullyFlexible: showings.length === drop.showings.length,
+    };
+    if (rng() < LATE_JOINER_SHARE) {
+      bidder.bot.arrivesAt = 1 + Math.floor(rng() * 8);
+      bidder.pending = true; // in the drop, but hasn't placed a bid yet
+    }
+    added.push(bidder);
+  }
+  return added;
+}
+
+// Between ticks: arrivals, distraction, FOMO, comfort-then-stretch raising,
+// and quitting. Returns how many bidders changed (0 = crowd has converged).
+function adjustBots(drop, rng = Math.random) {
+  if (drop.phase !== 'bidding') return 0;
+  let changed = 0;
+  for (const b of drop.bidders.values()) {
+    const bot = b.bot;
+    if (!bot || bot.quit) continue;
+
+    // Late joiners place their first bid
+    if (b.pending) {
+      if (drop.round + 1 >= bot.arrivesAt) {
+        b.pending = false;
+        changed += 1;
+      }
+      continue;
+    }
+    if (b.withdrawn) continue;
+
+    if (drop.currentOf(b)) {
+      bot.losingTicks = 0;
+      continue; // winning at current exact prices: sit tight
+    }
+    if (rng() > bot.attention) continue; // didn't look this tick
+    bot.losingTicks += 1;
+
+    // Hopeless? Every cell they accept already costs more than their stretch.
+    let cheapestGap = Infinity;
+    for (const tm of b.tierMaxes) {
+      const cap = bot.stretch[tm.tierId] ?? tm.maxPrice;
+      for (const s of b.showings) {
+        const p = drop.cellPrices.get(`${s}|${tm.tierId}`);
+        if (p !== undefined) cheapestGap = Math.min(cheapestGap, p - cap * drop.weightOf(s));
+      }
+    }
+    const hopeless = cheapestGap !== Infinity && cheapestGap > 0;
+    const hazard = Math.min(1, 0.02 + 0.015 * bot.losingTicks + (hopeless ? 1 : 0));
+    if (rng() < hazard) {
+      bot.quit = true;
+      continue;
+    }
+
+    let raised = false;
+    for (const tm of b.tierMaxes) {
+      const t = tm.tierId;
+      const comfort = bot.comfort[t] ?? tm.maxPrice;
+      const stretch = bot.stretch[t] ?? tm.maxPrice;
+      const priceNow = drop.prices[t];
+      const last = bot.lastSeen[t] ?? priceNow;
+      const fomo = priceNow > last * FOMO_TRIGGER ? FOMO_MULT : 1;
+      bot.lastSeen[t] = priceNow;
+      if (tm.maxPrice < comfort) {
+        // below comfort: close most of the gap fast
+        const step = Math.max(1, Math.round((comfort - tm.maxPrice) * (0.5 + 0.3 * rng()) * fomo));
+        tm.maxPrice = Math.min(comfort, tm.maxPrice + step);
+        raised = true;
+      } else if (tm.maxPrice < stretch) {
+        // tolerance zone: reluctant, small steps
+        const step = Math.max(1, Math.round((stretch - tm.maxPrice) * (0.1 + 0.1 * rng()) * fomo));
+        tm.maxPrice = Math.min(stretch, tm.maxPrice + step);
+        raised = true;
+      }
+    }
+    if (raised) changed += 1;
+    else bot.quit = true; // at full stretch everywhere and still losing: done
+  }
+  if (changed > 0) drop.touch();
+  return changed;
+}
+
+function pickWeighted(pairs, rng) {
+  const total = pairs.reduce((sum, [, w]) => sum + w, 0);
+  let r = rng() * total;
+  for (const [value, weight] of pairs) {
+    r -= weight;
+    if (r <= 0) return value;
+  }
+  return pairs[pairs.length - 1][0];
+}
+
+// k distinct shows, drawn without replacement, weighted by popularity.
+function pickShowsWeighted(showings, k, pop, rng) {
+  const remaining = showings.map((s) => [s, pop.get(s) ?? 1]);
+  const picked = [];
+  while (picked.length < k && remaining.length > 0) {
+    const total = remaining.reduce((sum, [, w]) => sum + w, 0);
+    let r = rng() * total;
+    let idx = remaining.length - 1;
+    for (let i = 0; i < remaining.length; i++) {
+      r -= remaining[i][1];
+      if (r <= 0) {
+        idx = i;
+        break;
+      }
+    }
+    picked.push(remaining[idx][0]);
+    remaining.splice(idx, 1);
+  }
+  return showings.filter((s) => picked.includes(s)); // keep canonical order
+}
+
+function gaussian(rng) {
+  const u1 = Math.max(rng(), 1e-9);
+  const u2 = rng();
+  return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+}
+
+// True lognormal: median * exp(sigma * z), z ~ N(0, 1).
+function lognormal(median, sigma, rng) {
+  return Math.max(5, Math.round(median * Math.exp(sigma * gaussian(rng))));
+}
+
+</script>
+<script>
+
+/* ---------------- app state + game loop ---------------- */
+
+const tierById = (id) => TIERS.find((t) => t.id === id);
+
+const LOBBY_SECONDS = 15, ROUND_SECONDS = 8, SEED_BOTS = 2500, FLAT_PRICE = 30;
+// Your typed max for every tier, kept even while a tier is switched off, so
+// toggling a tier never destroys a number you entered.
+let myMaxes = {};
+let drop, youId, lobbyEndsAt, nextTickAt, timer, prevPrices, pendingTier, selectedShow;
+
+const $ = (s) => document.querySelector(s);
+const secs = (t) => Math.max(0, Math.ceil((t - Date.now()) / 1000));
+const suggestedMax = (id) => ({ t1: 120, t2: 80, t3: 55, t4: 35, t5: 20 })[id] ?? 30;
+
+function reset() {
+  clearTimeout(timer);
+  timer = null; lobbyEndsAt = null; nextTickAt = null; youId = null; pendingTier = null;
+  myMaxes = Object.fromEntries(TIERS.map((t) => [t.id, suggestedMax(t.id)]));
+  selectedShow = null;
+  drop = new Drop({});
+  prevPrices = { ...drop.prices };
+  addBots(drop, SEED_BOTS);
+  buildJoinForm();
+  $('#you-panel').hidden = true;
+  $('#join-panel').hidden = false;
+  $('#you-tiers').dataset.built = '';
+  render();
+}
+
+function startDrop() {
+  if (drop.phase !== 'lobby' || lobbyEndsAt) return;
+  lobbyEndsAt = Date.now() + LOBBY_SECONDS * 1000;
+  timer = setTimeout(beginBidding, LOBBY_SECONDS * 1000);
+  render();
+}
+function beginBidding() {
+  clearTimeout(timer);
+  lobbyEndsAt = null;
+  drop.openBidding();
+  render();
+  doTick(); // first exact prices right away
+}
+
+// The exact solve runs in a Web Worker so the page never freezes; if the
+// environment blocks blob workers, we fall back to solving on-thread.
+let solverWorker = null, workerBroken = false, solving = false;
+function getWorker() {
+  if (workerBroken) return null;
+  if (!solverWorker) {
+    try {
+      const src = document.getElementById('engine-code').textContent +
+        '\nonmessage = (e) => { const r = solveMarket(e.data); postMessage({ prices: [...r.prices], assignments: [...r.assignments], buyIn: [...r.buyIn] }); };';
+      solverWorker = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
+    } catch {
+      workerBroken = true;
+      return null;
+    }
+  }
+  return solverWorker;
+}
+function solveOffThread(book) {
+  const w = getWorker();
+  if (!w) return null;
+  return new Promise((resolve, reject) => {
+    w.onmessage = (e) => resolve({ prices: new Map(e.data.prices), assignments: new Map(e.data.assignments), buyIn: new Map(e.data.buyIn) });
+    w.onerror = (err) => { workerBroken = true; reject(err); };
+    w.postMessage(book);
+  });
+}
+function scheduleTick() {
+  if (drop.phase !== 'bidding') { nextTickAt = null; return; }
+  nextTickAt = Date.now() + ROUND_SECONDS * 1000;
+  timer = setTimeout(doTick, ROUND_SECONDS * 1000);
+}
+async function resolveNow() {
+  if (drop.phase !== 'bidding' || solving) return;
+  solving = true;
+  try {
+    const result = await solveOffThread(drop.bookInput());
+    if (result) drop.applySolveResult(result);
+    else drop.solve();
+  } catch {
+    drop.solve();
+  } finally {
+    solving = false;
+  }
+  render();
+}
+
+async function doTick() {
+  if (solving || drop.phase === 'settled') return;
+  clearTimeout(timer);
+  nextTickAt = null;
+  solving = true;
+  try {
+    if (drop.phase === 'lobby') drop.openBidding();
+    prevPrices = { ...drop.prices };
+    adjustBots(drop);
+    const v = drop.bookVersion;
+    let done = false;
+    if (!workerBroken) {
+      try {
+        const result = await solveOffThread(drop.bookInput());
+        if (result) { drop.tickWith(result, v); done = true; }
+      } catch { /* fall through to the sync path */ }
+    }
+    if (!done) drop.tick(); // exact, but on-thread
+  } finally {
+    solving = false;
+  }
+  scheduleTick();
+  render();
+}
+
+/* ---------------- rendering ---------------- */
+
+function render() {
+  const you = youId ? drop.bidders.get(youId) : null;
+  renderHeader();
+  renderTierBoard(you);
+  renderPendingBar(you);
+  renderSeatMap(you);
+  fitSeatMap();
+  renderYou(you);
+  renderResults();
+  $('#bot-count').textContent = drop.participantCount.toLocaleString();
+  $('#show-count').textContent = drop.showings.length;
+  $('#seatmap-hint').textContent = drop.showings.length;
+  $('#start-btn').disabled = drop.phase !== 'lobby' || !!lobbyEndsAt;
+}
+
+function renderHeader() {
+  const pill = $('#phase-pill');
+  pill.textContent = drop.phase === 'lobby' && !lobbyEndsAt ? 'not open' : drop.phase;
+  pill.className = 'pill ' + drop.phase;
+  const cd = $('#countdown');
+  if (drop.phase === 'lobby' && lobbyEndsAt) cd.textContent = 'Bidding starts in ' + secs(lobbyEndsAt) + 's — get your filters in';
+  else if (drop.phase === 'bidding' && solving) cd.textContent = 'Round ' + drop.round + ' · computing exact prices…';
+  else if (drop.phase === 'bidding' && nextTickAt) cd.textContent = 'Round ' + drop.round + ' · next tick in ' + secs(nextTickAt) + 's';
+  else if (drop.phase === 'settled') cd.textContent = 'Settled after ' + drop.round + ' rounds';
+  else cd.textContent = 'Press “Start the drop”';
+}
+
+function renderTierBoard(you) {
+  const board = $('#tier-board');
+  // Cards are persistent DOM nodes (only their contents update): rebuilding
+  // them every render used to eat clicks that started before a rebuild.
+  const sig = TIERS.map((t) => t.id).join(',');
+  if (board.dataset.sig !== sig) {
+    board.dataset.sig = sig;
+    board.innerHTML = TIERS.map((t) => '<div class="tier-card ' + t.id + '" data-tier="' + t.id + '"></div>').join('');
+  }
+  const editable = you && !you.withdrawn && drop.phase !== 'settled';
+  const comp = drop.phase === 'bidding' ? drop.competitionFor(you) : null;
+  const scoped = you && !you.withdrawn && you.showings.length < drop.showings.length;
+  const targetId = editable ? drop.targetTier(you) : you && you.assignment ? you.assignment.tierId : null;
+  const targetIdx = targetId ? TIER_ORDER.indexOf(targetId) : -1;
+  for (const tier of TIERS) {
+    const price = drop.prices[tier.id];
+    const pMax = drop.priceMax[tier.id] ?? price;
+    const hist = drop.priceHistory[tier.id];
+    const prev = prevPrices[tier.id] ?? price;
+    const d = drop.seated[tier.id];
+    const s = drop.supply[tier.id];
+    const isCurrent = tier.id === targetId;
+    const clickable = editable && !isCurrent;
+    let footer = '';
+    if (isCurrent) {
+      footer = '<div class="you-here">✓ ' + (drop.phase === 'settled' ? 'your tier' : 'seated — guaranteed at settlement') + '</div>';
+    } else if (clickable) {
+      const b = tierBuyIn(tier.id, you);
+      if (b !== null) {
+        const idx = TIER_ORDER.indexOf(tier.id);
+        const verb = targetIdx === -1 ? 'Buy in' : idx < targetIdx ? 'Buy up' : 'Buy down';
+        footer = '<div class="switch-hint">' + verb + ' — $' + b + ' guarantees a seat now</div>';
+      }
+    }
+    const card = board.children[TIERS.indexOf(tier)];
+    card.className = 'tier-card ' + tier.id + (isCurrent ? ' current' : '') + (clickable ? ' clickable' : '') +
+      (tier.id === pendingTier ? ' pending' : '');
+    card.innerHTML =
+      '<div class="tname">' + tier.name + '</div>' +
+      '<div><span class="price' + (price !== prev ? ' price-flash' : '') + '">$' + price + '</span>' +
+      (pMax > price ? '<span class="delta up">hot shows to $' + pMax + '</span>' : deltaHtml(price - prev)) + '</div>' +
+      (comp
+        ? '<div class="meta" title="People who accept one of your shows in this tier and can afford it at today’s price, against the seats in those shows. They may also be competing elsewhere — the market, not this ratio, sets the price.">' +
+          comp[tier.id].contenders.toLocaleString() + ' in the running · ' + comp[tier.id].seats.toLocaleString() +
+          ' seats' + (scoped ? ' in your shows' : '') + '</div>' +
+          '<div class="demand-bar"><div class="' + (comp[tier.id].contenders > comp[tier.id].seats ? 'over' : '') +
+          '" style="width:' + Math.min(1, comp[tier.id].contenders / Math.max(1, comp[tier.id].seats)) * 100 + '%"></div></div>'
+        : '<div class="meta">' + (drop.phase === 'settled' ? d + ' sold · ' + s + ' seats' : d + ' seated · ' + s + ' seats') + '</div>' +
+          '<div class="demand-bar"><div style="width:' + Math.min(1, d / s) * 100 + '%"></div></div>') +
+      sparkline(hist) +
+      footer;
+  }
+}
+
+// Clicking a tier card stages a switch; Confirm applies it: the clicked
+// tier's max becomes exactly its clock price, better tiers are released,
+// and worse tiers stay as fallbacks.
+// One rule, every time: clicking a tier makes it your target — you offer its
+// buy-in price, you stop offering anything BETTER (you can't be pulled up into
+// a tier you just declined), and cheaper tiers stay on as fallbacks. Switched
+// -off tiers keep their numbers, so it is always one click to undo.
+function switchToTier(tierId) {
+  const you = youId && drop.bidders.get(youId);
+  if (!you || you.withdrawn || drop.phase === 'settled') return;
+  myMaxes[tierId] = tierBuyIn(tierId, you) ?? drop.prices[tierId];
+  const idx = TIER_ORDER.indexOf(tierId);
+  const keep = you.tierMaxes.filter((tm) => TIER_ORDER.indexOf(tm.tierId) > idx);
+  you.tierMaxes = [{ tierId, maxPrice: myMaxes[tierId] }, ...keep];
+  drop.touch();
+  pendingTier = null;
+  $('#you-tiers').dataset.built = '';
+  render();
+}
+
+const shortName = (tierId) => tierById(tierId).name.split(' ·')[0];
+
+// Minimum bid that seats this user in the tier right now (cheapest across
+// the shows they accept).
+function tierBuyIn(tierId, you) {
+  const shows = you && !you.withdrawn ? you.showings : drop.showings;
+  let best = null;
+  for (const sh of shows) {
+    const b = drop.cellBuyIn.get(sh + '|' + tierId);
+    if (b !== null && b !== undefined && (best === null || b < best)) best = b;
+  }
+  return best;
+}
+
+function renderPendingBar(you) {
+  const bar = $('#pending-bar');
+  const editable = you && !you.withdrawn && drop.phase !== 'settled';
+  if (!editable) pendingTier = null;
+  if (pendingTier && drop.targetTier(you) === pendingTier) pendingTier = null;
+  if (!pendingTier) { bar.hidden = true; return; }
+  const idx = TIER_ORDER.indexOf(pendingTier);
+  const released = you.tierMaxes.filter((tm) => TIER_ORDER.indexOf(tm.tierId) < idx).map((tm) => shortName(tm.tierId));
+  const kept = you.tierMaxes.filter((tm) => TIER_ORDER.indexOf(tm.tierId) > idx).map((tm) => shortName(tm.tierId));
+  const you2 = youId && drop.bidders.get(youId);
+  const bIn = tierBuyIn(pendingTier, you2);
+  $('#pending-text').innerHTML =
+    '<b>Target ' + tierById(pendingTier).name + '</b> — offer <b class="mono">$' + (bIn ?? drop.prices[pendingTier]) + '</b> (seats you now)' +
+    (released.length ? ' · switch off ' + released.join(', ') : '') +
+    (kept.length ? ' · keep ' + kept.join(', ') + ' as fallback' : '') +
+    '. Switched-off tiers keep their numbers — click one to come back.';
+  bar.hidden = false;
+}
+
+function flatStatHtml(revenue, tickets) {
+  const flat = tickets * FLAT_PRICE;
+  const diff = revenue - flat;
+  return '<p class="flat-stat">Same ' + tickets.toLocaleString() + ' tickets at a flat $' + FLAT_PRICE + ' each would have made <b>$' +
+    flat.toLocaleString() + '</b> — the auction made <b class="' + (diff >= 0 ? 'lift-up' : 'lift-down') + '">' +
+    (diff >= 0 ? '+$' : '−$') + Math.abs(diff).toLocaleString() + '</b> vs flat pricing.</p>';
+}
+
+function deltaHtml(d) {
+  if (!d) return '';
+  return '<span class="delta ' + (d > 0 ? 'up' : 'down') + '">' + (d > 0 ? '▲' : '▼') + ' $' + Math.abs(d) + '</span>';
+}
+
+function sparkline(hist) {
+  const w = 180, h = 34, pad = 3;
+  const min = Math.min(...hist), max = Math.max(...hist), span = Math.max(1, max - min);
+  const pt = (p, i) => [
+    pad + (i / Math.max(1, hist.length - 1)) * (w - 2 * pad),
+    h - pad - ((p - min) / span) * (h - 2 * pad),
+  ];
+  const pts = hist.map((p, i) => pt(p, i).map((v) => v.toFixed(1)).join(',')).join(' ');
+  const [ex, ey] = pt(hist[hist.length - 1], hist.length - 1);
+  return '<svg class="spark" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" aria-hidden="true">' +
+    '<polyline points="' + pts + '"/><circle cx="' + ex.toFixed(1) + '" cy="' + ey.toFixed(1) + '" r="2.4"/></svg>';
+}
+
+// Seats shrink to fit their column so the map never scrolls sideways.
+function fitSeatMap() {
+  const el = $('#seat-map');
+  const box = el.parentElement;
+  const width = box.clientWidth;
+  if (!width) return;
+  const maxSeats = Math.max(...VENUE.rows.map((r) => r.seats.length));
+  const gap = width < 420 ? 1 : 2;
+  const size = Math.max(3, Math.min(11, Math.floor((width - 40 - maxSeats * gap) / maxSeats)));
+  el.style.setProperty('--seat', size + 'px');
+  el.style.setProperty('--seat-gap', gap + 'px');
+}
+addEventListener('resize', fitSeatMap);
+
+function renderSeatMap(you) {
+  const el = $('#seat-map');
+  const settled = drop.phase === 'settled' && drop.results;
+  const mine = you && you.assignment;
+  if (settled && (!selectedShow || !drop.showings.includes(selectedShow))) {
+    selectedShow = mine ? mine.showing : drop.showings[0];
+  }
+  const show = settled ? selectedShow : null;
+  const sold = settled ? new Set(drop.results.soldSeats[show] || []) : null;
+
+  // show switcher (settlement only)
+  const chips = $('#seat-shows');
+  chips.hidden = !settled;
+  if (settled) {
+    chips.innerHTML = drop.showings
+      .map((sh) => '<button type="button" class="schip' + (sh === show ? ' on' : '') + '" data-show="' + sh +
+        '" data-class="' + drop.classOf(sh) + '" title="' + sh + ' · ' + SHOW_CLASSES[drop.classOf(sh)].label + '">' +
+        sh.replace('Showing ', '').replace('Show ', '') + '</button>')
+      .join('');
+  }
+
+  el.innerHTML = '<div class="screen">SCREEN</div>';
+  for (const row of VENUE.rows) {
+    const rowEl = document.createElement('div');
+    rowEl.className = 'seat-row';
+    let html = '<span class="rl">' + row.label + '</span>';
+    row.seats.forEach((tierId, i) => {
+      const id = row.label + (i + 1);
+      const isMine = mine && (!settled || mine.showing === show) &&
+        mine.seat.row === row.label && mine.seat.seat === i + 1;
+      let cls = 'seat ' + tierId;
+      let attrs = ' data-seat="' + id + '" data-tier="' + tierId + '"';
+      if (settled) {
+        const cell = drop.results.byShow[show][tierId];
+        const isSold = sold.has(id);
+        if (!isSold) cls += ' unsold';
+        attrs += ' data-price="' + cell.price + '" data-sold="' + (isSold ? '1' : '0') + '"';
+      }
+      if (isMine) cls += ' mine';
+      html += '<span class="' + cls + '"' + attrs + '></span>';
+    });
+    html += '<span class="rl">' + row.label + '</span>';
+    rowEl.innerHTML = html;
+    el.appendChild(rowEl);
+    if (row.label === 'H') {
+      const gap = document.createElement('div');
+      gap.className = 'aisle-gap';
+      el.appendChild(gap);
+    }
+  }
+  $('#seat-detail').textContent = settled
+    ? 'Hover any seat for its exact price · ' + show + ' (' + SHOW_CLASSES[drop.classOf(show)].label.toLowerCase() + ')'
+    : '';
+}
+
+// Live seat readout: hover any seat to read its price and status.
+$('#seat-map').addEventListener('mouseover', (e) => {
+  const seat = e.target.closest('.seat');
+  if (!seat) return;
+  const t = tierById(seat.dataset.tier);
+  const price = seat.dataset.price;
+  $('#seat-detail').innerHTML =
+    '<b>' + seat.dataset.seat + '</b> · ' + t.name +
+    (price !== undefined
+      ? ' · <b>$' + price + '</b> · ' + (seat.dataset.sold === '1' ? 'sold' : 'unsold')
+      : ' · floor $' + t.floorPrice) +
+    (seat.classList.contains('mine') ? ' · YOUR SEAT' : '');
+});
+$('#seat-shows').addEventListener('click', (e) => {
+  const chip = e.target.closest('.schip');
+  if (!chip) return;
+  selectedShow = chip.dataset.show;
+  render();
+});
+
+function renderLegend() {
+  $('#map-legend').innerHTML = TIERS.map((t) =>
+    '<span><span class="chip" style="background:var(--' + t.id + ')"></span>' + t.name + ' · floor $' + t.floorPrice + '</span>'
+  ).join('');
+}
+
+function buildJoinForm() {
+  const tf = $('#join-tiers');
+  tf.querySelectorAll('.tier-row').forEach((n) => n.remove());
+  for (const t of TIERS) {
+    tf.insertAdjacentHTML('beforeend',
+      '<div class="tier-row">' +
+      '<label class="trow-name"><input type="checkbox" name="tier" value="' + t.id + '"' + (t.id !== 't5' ? ' checked' : '') + '>' +
+      '<span class="tier-dot" style="background:var(--' + t.id + ')"></span>' + t.name + '</label>' +
+      '<span class="trow-max">max $ <input type="number" name="max-' + t.id + '" min="0" value="' + suggestedMax(t.id) + '"></span>' +
+      '</div>');
+  }
+}
+
+function readTierMaxes(prefix) {
+  return TIERS
+    .filter((t) => $('input[name="' + prefix + 'tier"][value="' + t.id + '"]')?.checked)
+    .map((t) => ({ tierId: t.id, maxPrice: Number($('input[name="' + prefix + 'max-' + t.id + '"]').value) }));
+}
+
+function join() {
+  $('#join-error').textContent = '';
+  const showings = [...drop.showings];
+  try {
+    if (drop.phase === 'settled') throw new Error('This drop already settled — press Reset to run another');
+    const b = drop.addBidder({ name: $('#join-name').value, showings, tierMaxes: readTierMaxes('') });
+    youId = b.id;
+    render();
+  } catch (e) {
+    $('#join-error').textContent = e.message;
+  }
+}
+
+function renderYou(you) {
+  if (!you) return;
+  $('#join-panel').hidden = true;
+  $('#you-panel').hidden = false;
+  const st = $('#you-status');
+  const editable = !you.withdrawn && drop.phase !== 'settled';
+  $('#you-tiers').hidden = !editable;
+  $('#you-showings').hidden = !editable;
+  $('#update-btn').hidden = !editable;
+  $('#withdraw-btn').hidden = !editable;
+  if (editable) {
+    const sf = $('#you-showings');
+    sf.querySelectorAll('.schip-row').forEach((n) => n.remove());
+    sf.insertAdjacentHTML('beforeend',
+      '<div class="schip-row">' + drop.showings.map((s) =>
+        '<button type="button" class="schip' + (you.showings.includes(s) ? ' on' : '') + '" data-show="' + s +
+        '" data-class="' + drop.classOf(s) + '" title="' + s + ' · ' + SHOW_CLASSES[drop.classOf(s)].label +
+        '">' + s.replace('Showing ', '') + '</button>').join('') +
+        '</div><div class="class-key">Dot = how wanted the showtime is · ' +
+        '<span style="color:#4a6fa5">●</span> least … <span style="color:#e05a4e">●</span> most. ' +
+        'Your max is what you\'d pay at the most wanted slot; weaker slots count for proportionally less, so you are never charged above it.</div>');
+    $('#showing-count').textContent = 'you’re bidding on ' + you.showings.length + ' of ' + drop.showings.length;
+    syncTierRowStates();
+  }
+
+  if (you.withdrawn) {
+    st.innerHTML = '<div class="you-status-card">You dropped out. You won’t be charged.</div>';
+    return;
+  }
+  if (drop.phase === 'settled') {
+    if (you.assignment) {
+      const t = tierById(you.assignment.tierId);
+      st.innerHTML = '<div class="you-status-card">🎟️ <span class="big">You’re in!</span><br>' +
+        you.assignment.showing + ' · ' + t.name + '<br>Seat <b class="mono">' + you.assignment.seat.row + you.assignment.seat.seat +
+        '</b> — charged <b class="mono">$' + you.assignment.pricePaid + '</b> (the exact clearing price for this show’s tier)</div>';
+    } else {
+      st.innerHTML = '<div class="you-status-card">😔 You were priced out of every tier you accepted. You were not charged.</div>';
+    }
+    return;
+  }
+  if (drop.phase === 'lobby') {
+    st.innerHTML = '<div class="you-status-card">You’re in the book. Exact prices are computed from everyone’s bids once bidding starts.</div>';
+  } else {
+    const cur = drop.currentOf(you);
+    let outbidHint = '';
+    if (!cur) {
+      let best = null;
+      for (const tm of you.tierMaxes) {
+        for (const sh of you.showings) {
+          const p = drop.cellPrices.get(sh + '|' + tm.tierId);
+          if (p !== undefined && (!best || p < best.p)) best = { p, sh, t: tm.tierId };
+        }
+      }
+      if (best) outbidHint = ' Cheapest way in: ' + tierById(best.t).name + ' · ' + best.sh + ' at <b class="mono">$' + best.p + '</b>.';
+    }
+    st.innerHTML = '<div class="you-status-card">' + (cur
+      ? '🎟️ <span class="big">Seated</span> — <b>' + cur.show + ' · ' + tierById(cur.tierId).name + '</b> at exactly <b class="mono">$' + cur.price +
+        '</b>.<br>If equilibrium is reached, this seat is <b>guaranteed yours</b> at this price. You only lose it if the market moves past your max — raise it to hold on.'
+      : 'You’re <span class="big">standing aside</span> — at today’s exact prices you’re not buying, and that’s a valid position: “at these prices, I’m good.”' + outbidHint +
+        ' Click a tier card to buy in.') + '</div>';
+  }
+
+  const tf = $('#you-tiers');
+  if (tf.dataset.built !== you.id) {
+    tf.dataset.built = you.id;
+    tf.querySelectorAll('.tier-row').forEach((n) => n.remove());
+    for (const t of TIERS) {
+      const tm = you.tierMaxes.find((x) => x.tierId === t.id);
+      if (tm) myMaxes[t.id] = tm.maxPrice;
+      const steps = (list) => '<span class="steppers">' + list.map((v) =>
+        '<button type="button" class="step" data-step="' + v + '" data-tier="' + t.id + '">' + v + '</button>').join('') + '</span>';
+      tf.insertAdjacentHTML('beforeend',
+        '<div class="tier-row' + (tm ? '' : ' off') + '">' +
+        '<label class="trow-name"><input type="checkbox" name="ytier" value="' + t.id + '"' + (tm ? ' checked' : '') + '>' +
+        '<span class="tier-dot" style="background:var(--' + t.id + ')"></span>' + t.name + '</label>' +
+        steps(['-100', '-10', '-1']) +
+        '<span class="trow-max">$ <input type="number" name="ymax-' + t.id + '" min="0" value="' + myMaxes[t.id] + '"></span>' +
+        steps(['+1', '+10', '+100']) +
+        '</div>');
+    }
+  }
+}
+
+function updateMaxes() {
+  $('#you-error').textContent = '';
+  const you = drop.bidders.get(youId);
+  for (const t of TIERS) {
+    const input = document.querySelector('input[name="ymax-' + t.id + '"]');
+    if (input) myMaxes[t.id] = Math.max(0, Number(input.value || 0));
+  }
+  const cleaned = readTierMaxes('y').filter((tm) => tm.maxPrice >= 0);
+  if (cleaned.length === 0) {
+    $('#you-error').textContent = 'Keep at least one tier, or drop out instead';
+    return;
+  }
+  you.tierMaxes = cleaned;
+  drop.touch();
+  render();
+  resolveNow();
+}
+
+function renderResults() {
+  const panel = $('#results-panel');
+  if (drop.phase !== 'settled' || !drop.results) { panel.hidden = true; return; }
+  panel.hidden = false;
+  const r = drop.results;
+  let segRows = '';
+  for (const seg of SEGMENTS) {
+    const s = r.bySegment[seg.id];
+    if (!s) continue;
+    const pct = Math.round((s.winners / s.bidders) * 100);
+    const avg = s.winners ? Math.round(s.totalPaid / s.winners) : 0;
+    segRows += '<tr><td>' + seg.name + '</td><td class="num">' + s.winners + ' / ' + s.bidders +
+      ' (' + pct + '%)</td><td class="num">$' + avg + '</td></tr>';
+  }
+  $('#results').innerHTML =
+    '<p>' + r.winners + ' of ' + r.participants + ' bidders got seats in ' + r.rounds +
+    ' rounds · total revenue <span class="mono">$' + r.revenue.toLocaleString() + '</span></p>' +
+    '<table class="results"><tr><th>Tier</th><th>Low</th><th>Avg paid</th><th>High</th><th>Seats sold</th></tr>' +
+    TIERS.map((t) => {
+      const sp = r.tierSpread[t.id];
+      const row = r.byTier[t.id];
+      return '<tr><td>' + t.name + '</td><td class="num">$' + sp.min + '</td><td class="num">$' + sp.avg +
+        '</td><td class="num">$' + sp.max + '</td><td class="num">' + row.sold + ' / ' + row.supply + '</td></tr>';
+    }).join('') + '</table>' +
+    '<p class="hint" style="margin:0.4rem 0 0">Every seat in the same show and tier settled at the same price; the spread above is across shows. Pick a show on the seat map to price its seats one by one.</p>' +
+    (selectedShow
+      ? '<h2 style="margin-top:1.1rem">' + selectedShow + ' <span class="hint">— ' +
+        SHOW_CLASSES[drop.classOf(selectedShow)].label.toLowerCase() + ' showtime</span></h2><table class="results">' +
+        '<tr><th>Tier</th><th>Price</th><th>Sold</th><th>Take</th></tr>' +
+        TIERS.map((t) => {
+          const c = r.byShow[selectedShow][t.id];
+          return '<tr><td>' + t.name + '</td><td class="num">$' + c.price + '</td><td class="num">' + c.sold + ' / ' + c.seats +
+            '</td><td class="num">$' + (c.sold * c.price).toLocaleString() + '</td></tr>';
+        }).join('') + '</table>'
+      : '') +
+    (segRows
+      ? '<h2 style="margin-top:1.1rem">Who got in, by segment</h2>' +
+        '<p class="hint" style="margin:0 0 0.5rem">The crowd spans socioeconomic backgrounds — superfans here are willing to pay $300–700+ for prime seats, but under uniform pricing they pay the same settled price as the marginal winner.</p>' +
+        '<table class="results"><tr><th>Segment</th><th>Seated</th><th>Avg paid</th></tr>' + segRows + '</table>'
+      : '') +
+    flatStatHtml(r.revenue, r.winners);
+}
+
+/* ---------------- wiring ---------------- */
+
+$('#join-btn').addEventListener('click', join);
+$('#update-btn').addEventListener('click', updateMaxes);
+$('#withdraw-btn').addEventListener('click', () => {
+  const you = youId && drop.bidders.get(youId);
+  if (!you || drop.phase === 'settled') return;
+  for (const tm of you.tierMaxes) {
+    tm.maxPrice = 0;
+    const input = document.querySelector('input[name="ymax-' + tm.tierId + '"]');
+    if (input) input.value = 0;
+  }
+  drop.touch();
+  render();
+  resolveNow();
+});
+$('#tier-board').addEventListener('click', (e) => {
+  const card = e.target.closest('.tier-card.clickable');
+  if (card) { pendingTier = card.dataset.tier; render(); }
+});
+$('#confirm-switch').addEventListener('click', () => {
+  if (!pendingTier) return;
+  switchToTier(pendingTier);
+  resolveNow(); // seat lands on the exact book the buy-in was priced against
+});
+$('#cancel-switch').addEventListener('click', () => { pendingTier = null; render(); });
+$('#you-showings').addEventListener('click', (e) => {
+  const chip = e.target.closest('.schip');
+  if (!chip) return;
+  const you = youId && drop.bidders.get(youId);
+  if (!you || you.withdrawn || drop.phase === 'settled') return;
+  const show = chip.dataset.show;
+  const sel = you.showings.includes(show)
+    ? you.showings.filter((x) => x !== show)
+    : drop.showings.filter((x) => you.showings.includes(x) || x === show);
+  if (sel.length === 0) {
+    $('#you-error').textContent = 'Keep at least one show';
+    return;
+  }
+  $('#you-error').textContent = '';
+  you.showings = sel;
+  drop.touch();
+  render();
+  resolveNow();
+});
+function syncTierRowStates() {
+  for (const row of document.querySelectorAll('#you-tiers .tier-row')) {
+    const box = row.querySelector('input[name="ytier"]');
+    row.classList.toggle('off', box && !box.checked);
+  }
+}
+$('#you-tiers').addEventListener('change', (e) => {
+  if (e.target.name !== 'ytier') return;
+  syncTierRowStates();
+  updateMaxes();
+});
+$('#you-tiers').addEventListener('click', (e) => {
+  const btn = e.target.closest('button.step');
+  if (!btn) return;
+  e.preventDefault();
+  const you = youId && drop.bidders.get(youId);
+  if (!you || you.withdrawn || drop.phase === 'settled') return;
+  const tierId = btn.dataset.tier;
+  const input = document.querySelector('input[name="ymax-' + tierId + '"]');
+  input.value = Math.max(0, Number(input.value || 0) + Number(btn.dataset.step));
+  if (Number(btn.dataset.step) > 0) {
+    document.querySelector('input[name="ytier"][value="' + tierId + '"]').checked = true;
+  }
+  updateMaxes(); // apply immediately
+});
+$('#start-btn').addEventListener('click', startDrop);
+document.querySelectorAll('[data-ctl]').forEach((btn) => btn.addEventListener('click', () => {
+  const a = btn.dataset.ctl;
+  if (a === 'tick') { if (drop.phase === 'lobby') beginBidding(); doTick(); }
+  if (a === 'bots') { if (drop.phase !== 'settled') { addBots(drop, Number(btn.dataset.count)); render(); } }
+  if (a === 'shows') {
+    if (drop.phase !== 'settled') {
+      drop.addShowings(Number(btn.dataset.count));
+      render();
+    }
+  }
+  if (a === 'reset') reset();
+}));
+
+renderLegend();
+reset();
+setInterval(() => { renderHeader(); }, 300);
+</script>
+
+</html>
