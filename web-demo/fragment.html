@@ -871,6 +871,7 @@ class Drop {
       joinedAt: this.bidders.size,
       segment: segment ?? null,
       withdrawn: false,
+      pending: false, // in the drop but hasn't placed a bid yet
       assignment: null, // final: {tierId, showing, seat, pricePaid}
     };
     this.bidders.set(id, bidder);
@@ -947,7 +948,7 @@ class Drop {
       capacityPerShowing: VENUE.capacityPerShowing,
       hint: this.cellPrices.size ? [...this.cellPrices] : undefined,
       bidders: [...this.bidders.values()]
-        .filter((b) => !b.withdrawn)
+        .filter((b) => !b.withdrawn && !b.pending)
         .map((b) => ({ id: b.id, showings: b.showings, tierMaxes: b.tierMaxes })),
     };
   }
@@ -1089,6 +1090,41 @@ class Drop {
       byTier,
       bySegment,
     };
+  }
+
+  // Everyone in the drop, whether or not they have a live bid.
+  get participantCount() {
+    return this.bidders.size;
+  }
+
+  // Live competition for one bidder's scope: for each tier, how many people
+  // could take one of the seats this bidder is going for (they accept one of
+  // the same shows in that tier and can afford it at today's price), against
+  // how many such seats exist. Exact for the scope; a contender may also be
+  // competing elsewhere, which is why the market — not this number — sets the
+  // price.
+  competitionFor(bidder) {
+    const myShows = new Set(bidder && !bidder.withdrawn ? bidder.showings : this.showings);
+    const out = {};
+    for (const t of TIER_ORDER) {
+      out[t] = { contenders: 0, seats: myShows.size * VENUE.capacityPerShowing[t] };
+    }
+    for (const b of this.bidders.values()) {
+      if (b.withdrawn || b.pending) continue;
+      for (const tm of b.tierMaxes) {
+        const row = out[tm.tierId];
+        if (!row) continue;
+        for (const s of b.showings) {
+          if (!myShows.has(s)) continue;
+          const p = this.cellPrices.get(`${s}|${tm.tierId}`);
+          if (p !== undefined && tm.maxPrice >= p) {
+            row.contenders += 1;
+            break;
+          }
+        }
+      }
+    }
+    return out;
   }
 
   // Money the drop would collect if it settled right now.
@@ -1259,7 +1295,7 @@ function addBots(drop, count, rng = Math.random) {
     };
     if (rng() < LATE_JOINER_SHARE) {
       bidder.bot.arrivesAt = 1 + Math.floor(rng() * 8);
-      bidder.withdrawn = true; // not in the book until they arrive
+      bidder.pending = true; // in the drop, but hasn't placed a bid yet
     }
     added.push(bidder);
   }
@@ -1275,10 +1311,10 @@ function adjustBots(drop, rng = Math.random) {
     const bot = b.bot;
     if (!bot || bot.quit) continue;
 
-    // Late joiners arrive
-    if (bot.arrivesAt !== undefined && b.withdrawn) {
+    // Late joiners place their first bid
+    if (b.pending) {
       if (drop.round + 1 >= bot.arrivesAt) {
-        b.withdrawn = false;
+        b.pending = false;
         changed += 1;
       }
       continue;
@@ -1505,7 +1541,7 @@ function render() {
   fitSeatMap();
   renderYou(you);
   renderResults();
-  $('#bot-count').textContent = [...drop.bidders.values()].filter((b) => !b.withdrawn && b.id !== youId).length.toLocaleString();
+  $('#bot-count').textContent = drop.participantCount.toLocaleString();
   $('#show-count').textContent = drop.showings.length;
   $('#seatmap-hint').textContent = drop.showings.length;
   $('#start-btn').disabled = drop.phase !== 'lobby' || !!lobbyEndsAt;
@@ -1533,6 +1569,8 @@ function renderTierBoard(you) {
     board.innerHTML = TIERS.map((t) => '<div class="tier-card ' + t.id + '" data-tier="' + t.id + '"></div>').join('');
   }
   const editable = you && !you.withdrawn && drop.phase !== 'settled';
+  const comp = drop.phase === 'lobby' ? null : drop.competitionFor(you);
+  const scoped = you && !you.withdrawn && you.showings.length < drop.showings.length;
   const targetId = editable ? drop.targetTier(you) : you && you.assignment ? you.assignment.tierId : null;
   const targetIdx = targetId ? TIER_ORDER.indexOf(targetId) : -1;
   for (const tier of TIERS) {
@@ -1562,8 +1600,14 @@ function renderTierBoard(you) {
       '<div class="tname">' + tier.name + '</div>' +
       '<div><span class="price' + (price !== prev ? ' price-flash' : '') + '">$' + price + '</span>' +
       (pMax > price ? '<span class="delta up">hot shows to $' + pMax + '</span>' : deltaHtml(price - prev)) + '</div>' +
-      '<div class="meta">' + d + ' seated · ' + s + ' seats</div>' +
-      '<div class="demand-bar"><div style="width:' + Math.min(1, d / s) * 100 + '%"></div></div>' +
+      (comp
+        ? '<div class="meta" title="People who accept one of your shows in this tier and can afford it at today’s price, against the seats in those shows. They may also be competing elsewhere — the market, not this ratio, sets the price.">' +
+          comp[tier.id].contenders.toLocaleString() + ' in the running · ' + comp[tier.id].seats.toLocaleString() +
+          ' seats' + (scoped ? ' in your shows' : '') + '</div>' +
+          '<div class="demand-bar"><div class="' + (comp[tier.id].contenders > comp[tier.id].seats ? 'over' : '') +
+          '" style="width:' + Math.min(1, comp[tier.id].contenders / Math.max(1, comp[tier.id].seats)) * 100 + '%"></div></div>'
+        : '<div class="meta">' + d + ' seated · ' + s + ' seats</div>' +
+          '<div class="demand-bar"><div style="width:' + Math.min(1, d / s) * 100 + '%"></div></div>') +
       sparkline(hist) +
       footer;
   }

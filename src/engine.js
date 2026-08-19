@@ -63,6 +63,7 @@ export class Drop {
       joinedAt: this.bidders.size,
       segment: segment ?? null,
       withdrawn: false,
+      pending: false, // in the drop but hasn't placed a bid yet
       assignment: null, // final: {tierId, showing, seat, pricePaid}
     };
     this.bidders.set(id, bidder);
@@ -139,7 +140,7 @@ export class Drop {
       capacityPerShowing: VENUE.capacityPerShowing,
       hint: this.cellPrices.size ? [...this.cellPrices] : undefined,
       bidders: [...this.bidders.values()]
-        .filter((b) => !b.withdrawn)
+        .filter((b) => !b.withdrawn && !b.pending)
         .map((b) => ({ id: b.id, showings: b.showings, tierMaxes: b.tierMaxes })),
     };
   }
@@ -281,6 +282,41 @@ export class Drop {
       byTier,
       bySegment,
     };
+  }
+
+  // Everyone in the drop, whether or not they have a live bid.
+  get participantCount() {
+    return this.bidders.size;
+  }
+
+  // Live competition for one bidder's scope: for each tier, how many people
+  // could take one of the seats this bidder is going for (they accept one of
+  // the same shows in that tier and can afford it at today's price), against
+  // how many such seats exist. Exact for the scope; a contender may also be
+  // competing elsewhere, which is why the market — not this number — sets the
+  // price.
+  competitionFor(bidder) {
+    const myShows = new Set(bidder && !bidder.withdrawn ? bidder.showings : this.showings);
+    const out = {};
+    for (const t of TIER_ORDER) {
+      out[t] = { contenders: 0, seats: myShows.size * VENUE.capacityPerShowing[t] };
+    }
+    for (const b of this.bidders.values()) {
+      if (b.withdrawn || b.pending) continue;
+      for (const tm of b.tierMaxes) {
+        const row = out[tm.tierId];
+        if (!row) continue;
+        for (const s of b.showings) {
+          if (!myShows.has(s)) continue;
+          const p = this.cellPrices.get(`${s}|${tm.tierId}`);
+          if (p !== undefined && tm.maxPrice >= p) {
+            row.contenders += 1;
+            break;
+          }
+        }
+      }
+    }
+    return out;
   }
 
   // Money the drop would collect if it settled right now.

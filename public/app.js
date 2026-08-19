@@ -51,8 +51,7 @@ async function refresh() {
   renderSeatMap();
   renderYou();
   renderResults();
-  const you = state.you;
-  $('#bot-count').textContent = Math.max(0, state.bidderCount - (you && !you.withdrawn ? 1 : 0)).toLocaleString();
+  $('#bot-count').textContent = state.bidderCount.toLocaleString();
   $('#show-count').textContent = state.showings.length;
 }
 
@@ -89,6 +88,8 @@ function renderTierBoard() {
   }
   const you = state.you;
   const editable = you && !you.withdrawn && state.phase !== 'settled';
+  const comp = state.competition;
+  const scoped = you && !you.withdrawn && you.showings.length < state.showings.length;
   const targetId = editable ? you.targetTier : you && you.assignment ? you.assignment.tierId : null;
   const targetIdx = targetId ? tiers.findIndex((t) => t.id === targetId) : -1;
   for (const tier of tiers) {
@@ -117,8 +118,13 @@ function renderTierBoard() {
     card.innerHTML = `
       <div>${tier.name}</div>
       <div><span class="price">$${price}</span>${pMax > price ? `<span class="delta up">hot shows to $${pMax}</span>` : deltaHtml(price - prev)}</div>
-      <div class="meta">${d} seated · ${s} seats</div>
-      <div class="demand-bar"><div style="width:${ratio * 100}%"></div></div>
+      ${
+        comp
+          ? `<div class="meta" title="People who accept one of your shows in this tier and can afford it at today's price, against the seats in those shows. They may also be competing elsewhere — the market, not this ratio, sets the price.">${comp[tier.id].contenders.toLocaleString()} in the running · ${comp[tier.id].seats.toLocaleString()} seats${scoped ? ' in your shows' : ''}</div>
+      <div class="demand-bar"><div class="${comp[tier.id].contenders > comp[tier.id].seats ? 'over' : ''}" style="width:${Math.min(1, comp[tier.id].contenders / Math.max(1, comp[tier.id].seats)) * 100}%"></div></div>`
+          : `<div class="meta">${d} seated · ${s} seats</div>
+      <div class="demand-bar"><div style="width:${ratio * 100}%"></div></div>`
+      }
       ${sparkline(hist)}
       ${footer}`;
   }

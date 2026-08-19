@@ -144,7 +144,7 @@ export function addBots(drop, count, rng = Math.random) {
     };
     if (rng() < LATE_JOINER_SHARE) {
       bidder.bot.arrivesAt = 1 + Math.floor(rng() * 8);
-      bidder.withdrawn = true; // not in the book until they arrive
+      bidder.pending = true; // in the drop, but hasn't placed a bid yet
     }
     added.push(bidder);
   }
@@ -160,10 +160,10 @@ export function adjustBots(drop, rng = Math.random) {
     const bot = b.bot;
     if (!bot || bot.quit) continue;
 
-    // Late joiners arrive
-    if (bot.arrivesAt !== undefined && b.withdrawn) {
+    // Late joiners place their first bid
+    if (b.pending) {
       if (drop.round + 1 >= bot.arrivesAt) {
-        b.withdrawn = false;
+        b.pending = false;
         changed += 1;
       }
       continue;
