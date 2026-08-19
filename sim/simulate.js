@@ -20,10 +20,14 @@ function mulberry32(a) {
 }
 
 const rng = mulberry32(seed);
-const drop = new Drop({ name: 'Simulated Drop' });
+const drop = new Drop({ name: 'Simulated Drop', rng });
 addBots(drop, botCount, rng);
 
 console.log(`\n${drop.name}: ${botCount} bidders, ${drop.showings.length} shows`);
+console.log(
+  'Showtime classes: ' +
+    drop.showings.map((s) => s.replace('Showing ', 'S') + '=' + drop.classOf(s)).join('  ')
+);
 console.log('Exact clearing each tick; bots anchor low and raise while losing.\n');
 console.log('Supply per tier:', TIER_ORDER.map((t) => `${t}=${drop.supply[t]}`).join('  '));
 console.log(
@@ -93,6 +97,20 @@ const hist = new Map();
 for (const b of drop.bidders.values()) hist.set(b.showings.length, (hist.get(b.showings.length) ?? 0) + 1);
 console.log('\nShow-count distribution:', [...hist.entries()].sort((a, b) => a[0] - b[0]).map(([k, v]) => `${k}:${v}`).join('  '));
 
+// Does desirability show up in the prices?
+console.log('\nSettled price by showtime class (Tier 2 · Prime Center):');
+const byClass = new Map();
+for (const s of drop.showings) {
+  const cls = drop.classOf(s);
+  if (!byClass.has(cls)) byClass.set(cls, []);
+  byClass.get(cls).push(drop.cellPrices.get(`${s}|t2`));
+}
+for (const cls of [...byClass.keys()].sort()) {
+  const ps = byClass.get(cls);
+  const avg = Math.round(ps.reduce((a, b) => a + b, 0) / ps.length);
+  console.log(`  class ${cls}: ${ps.length} show(s), avg $${avg}  [${ps.join(', ')}]`);
+}
+
 // Guarantee check: at exact clearing prices, nobody who can afford a cell is
 // left out, and every winner is in a best cell for them.
 let violations = 0;
@@ -100,7 +118,7 @@ for (const b of drop.bidders.values()) {
   if (b.withdrawn || b.assignment) continue;
   for (const tm of b.tierMaxes) {
     for (const s of b.showings) {
-      if (tm.maxPrice > drop.cellPrices.get(`${s}|${tm.tierId}`)) violations++;
+      if (tm.maxPrice * drop.weightOf(s) > drop.cellPrices.get(`${s}|${tm.tierId}`)) violations++;
     }
   }
 }

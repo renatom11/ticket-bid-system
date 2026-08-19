@@ -23,6 +23,7 @@
 // the personality ranges (tolerance, attention).
 
 import { TIERS, TIER_ORDER } from './venue.js';
+import { SHOW_CLASSES } from './engine.js';
 
 export const SEGMENTS = [
   {
@@ -85,13 +86,16 @@ const FOMO_MULT = 1.6;
 
 const floorOf = Object.fromEntries(TIERS.map((t) => [t.id, t.floorPrice]));
 
-// Per-drop show popularity (lognormal, wide — a Friday-night show really
-// does draw several times a weekday matinee): consistent across addBots
-// calls, extended when shows are added mid-drop.
+// How likely a bot is to be free for each show. Driven by the show's
+// desirability class (a Friday-night slot is one more people can make) with a
+// little personal noise, so availability and desire point the same way
+// without being identical.
 function popularity(drop, rng) {
   const pop = (drop.__showPopularity ??= new Map());
   for (const s of drop.showings) {
-    if (!pop.has(s)) pop.set(s, Math.exp(gaussian(rng) * 0.9));
+    if (!pop.has(s)) {
+      pop.set(s, SHOW_CLASSES[drop.classOf(s)].draw * Math.exp(gaussian(rng) * 0.25));
+    }
   }
   return pop;
 }
@@ -183,7 +187,7 @@ export function adjustBots(drop, rng = Math.random) {
       const cap = bot.stretch[tm.tierId] ?? tm.maxPrice;
       for (const s of b.showings) {
         const p = drop.cellPrices.get(`${s}|${tm.tierId}`);
-        if (p !== undefined) cheapestGap = Math.min(cheapestGap, p - cap);
+        if (p !== undefined) cheapestGap = Math.min(cheapestGap, p - cap * drop.weightOf(s));
       }
     }
     const hopeless = cheapestGap !== Infinity && cheapestGap > 0;

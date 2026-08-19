@@ -5,7 +5,7 @@ import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Drop, UserError } from './engine.js';
+import { Drop, UserError, SHOW_CLASSES } from './engine.js';
 import { TIERS, VENUE } from './venue.js';
 import { addBots, adjustBots } from './bots.js';
 
@@ -65,6 +65,7 @@ function publicState(bidderId) {
     name: drop.name,
     committed: drop.committedTotal(),
     showings: drop.showings,
+    showClasses: Object.fromEntries(drop.showings.map((s) => [s, drop.classOf(s)])),
     priceHistory: drop.priceHistory,
     bidderCount: drop.participantCount,
     competition: drop.phase === 'lobby' ? null : drop.competitionFor(you),
@@ -108,7 +109,7 @@ const server = http.createServer(async (req, res) => {
       return send(200, publicState(url.searchParams.get('bidderId')));
     }
     if (url.pathname === '/api/venue') {
-      return send(200, { venue: VENUE, tiers: TIERS });
+      return send(200, { venue: VENUE, tiers: TIERS, classes: SHOW_CLASSES });
     }
     if (req.method === 'POST') {
       const body = await readBody(req);

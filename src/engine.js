@@ -15,10 +15,28 @@ import { solveMarket } from './market.js';
 
 const STABLE_ROUNDS_TO_SETTLE = 2;
 
+// Every showtime belongs to one of five desirability classes. Everyone wants
+// a 5 most and a 1 least: a stated bid is what you'd pay at a class-5
+// showtime, and counts for proportionally less at weaker ones (weight <= 1,
+// so nobody is ever charged above the max they stated). `draw` also makes
+// better showtimes ones more people can make, mildly.
+export const SHOW_CLASSES = {
+  1: { label: 'Undesirable', weight: 0.68, draw: 0.7, share: 0.15 },
+  2: { label: 'Moderately desirable', weight: 0.76, draw: 0.85, share: 0.2 },
+  3: { label: 'Desirable', weight: 0.84, draw: 1.0, share: 0.3 },
+  4: { label: 'Very desirable', weight: 0.92, draw: 1.2, share: 0.2 },
+  5: { label: 'Most desirable', weight: 1.0, draw: 1.4, share: 0.15 },
+};
+
 export class Drop {
-  constructor({ name = 'Prototype Drop', showings, maxRounds = 60 } = {}) {
+  constructor({ name = 'Prototype Drop', showings, maxRounds = 60, rng = Math.random, showClasses } = {}) {
     this.name = name;
+    this.rng = rng;
     this.showings = [...(showings ?? ['Showing 1', 'Showing 2', 'Showing 3', 'Showing 4', 'Showing 5'])];
+    // Desirability class per showtime; pinnable for deterministic runs.
+    this.pinnedClass = showClasses ?? null;
+    this.showClass = new Map();
+    for (const s of this.showings) this.showClass.set(s, this.pinnedClass?.[s] ?? this.rollShowClass());
     this.maxRounds = maxRounds;
     this.phase = 'lobby'; // lobby -> bidding -> settled
     this.round = 0;
@@ -44,6 +62,27 @@ export class Drop {
 
   touch() {
     this.bookVersion += 1;
+  }
+
+  rollShowClass() {
+    let r = this.rng();
+    for (const [cls, def] of Object.entries(SHOW_CLASSES)) {
+      r -= def.share;
+      if (r <= 0) return Number(cls);
+    }
+    return 3;
+  }
+
+  classOf(show) {
+    return this.showClass.get(show) ?? 3;
+  }
+
+  weightOf(show) {
+    return SHOW_CLASSES[this.classOf(show)].weight;
+  }
+
+  showWeights() {
+    return Object.fromEntries(this.showings.map((s) => [s, this.weightOf(s)]));
   }
 
   addBidder({ name, showings, tierMaxes, segment }) {
@@ -114,6 +153,7 @@ export class Drop {
     for (let i = 0; i < count; i++) {
       const name = `Showing ${this.showings.length + 1}`;
       this.showings.push(name);
+      this.showClass.set(name, this.pinnedClass?.[name] ?? this.rollShowClass());
       added.push(name);
     }
     for (const b of this.bidders.values()) {
@@ -138,6 +178,7 @@ export class Drop {
       showings: this.showings,
       tiers: TIERS,
       capacityPerShowing: VENUE.capacityPerShowing,
+      showWeights: this.showWeights(),
       hint: this.cellPrices.size ? [...this.cellPrices] : undefined,
       bidders: [...this.bidders.values()]
         .filter((b) => !b.withdrawn && !b.pending)
@@ -288,7 +329,7 @@ export class Drop {
     }
     const byShow = {};
     for (const s of this.showings) {
-      byShow[s] = {};
+      byShow[s] = { __class: this.classOf(s) };
       for (const t of TIER_ORDER) {
         byShow[s][t] = {
           price: this.cellPrices.get(`${s}|${t}`),
@@ -297,6 +338,7 @@ export class Drop {
         };
       }
     }
+    const showClasses = Object.fromEntries(this.showings.map((s) => [s, this.classOf(s)]));
     const tierSpread = {};
     for (const t of TIER_ORDER) {
       const cells = this.showings.map((s) => byShow[s][t]);
@@ -321,6 +363,7 @@ export class Drop {
       byShow,
       tierSpread,
       soldSeats,
+      showClasses,
     };
   }
 
@@ -349,7 +392,7 @@ export class Drop {
         for (const s of b.showings) {
           if (!myShows.has(s)) continue;
           const p = this.cellPrices.get(`${s}|${tm.tierId}`);
-          if (p !== undefined && tm.maxPrice >= p) {
+          if (p !== undefined && tm.maxPrice * this.weightOf(s) >= p) {
             row.contenders += 1;
             break;
           }

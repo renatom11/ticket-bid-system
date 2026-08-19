@@ -6,8 +6,14 @@ import { addBots, adjustBots } from '../src/bots.js';
 
 const SHOWINGS = ['S1', 'S2'];
 
+// Pin every showtime to the top class (weight 1.0) so bids and values line
+// up 1:1 — desirability weighting has its own tests below.
 function makeDrop(opts = {}) {
-  return new Drop({ showings: SHOWINGS, ...opts });
+  return new Drop({
+    showings: SHOWINGS,
+    showClasses: Object.fromEntries(SHOWINGS.map((s) => [s, 5])),
+    ...opts,
+  });
 }
 
 function runToSettle(drop, rng) {
@@ -113,7 +119,10 @@ test('settlement: capacity respected, cell-uniform prices, nobody over their max
     if (b.withdrawn || b.assignment) continue;
     for (const tm of b.tierMaxes) {
       for (const s of b.showings) {
-        assert.ok(tm.maxPrice <= drop.cellPrices.get(`${s}|${tm.tierId}`), 'guarantee holds');
+        assert.ok(
+          tm.maxPrice * drop.weightOf(s) <= drop.cellPrices.get(`${s}|${tm.tierId}`) + 1e-9,
+          'guarantee holds'
+        );
       }
     }
   }
@@ -145,6 +154,32 @@ test('tickWith (async worker path) matches tick exactly', async () => {
   assert.deepEqual(a.prices, b.prices);
   assert.equal(a.results.revenue, b.results.revenue);
   assert.equal(a.results.winners, b.results.winners);
+});
+
+test('showtime desirability: the wanted slot clears higher and steers the flexible crowd', () => {
+  const drop = new Drop({
+    showings: ['Weak', 'Strong'],
+    showClasses: { Weak: 1, Strong: 5 },
+  });
+  assert.ok(drop.weightOf('Strong') > drop.weightOf('Weak'));
+  const cap = VENUE.capacityPerShowing.t1;
+  // one flexible crowd, no show-specific constraints at all
+  for (let i = 0; i < cap * 3; i++) {
+    drop.addBidder({
+      name: `b${i}`,
+      showings: ['Weak', 'Strong'],
+      tierMaxes: [{ tierId: 't1', maxPrice: 60 + i }],
+    });
+  }
+  runToSettle(drop);
+  const strong = drop.cellPrices.get('Strong|t1');
+  const weak = drop.cellPrices.get('Weak|t1');
+  assert.ok(strong > weak, `the desirable showtime should cost more (${strong} vs ${weak})`);
+  for (const b of drop.bidders.values()) {
+    if (!b.assignment) continue;
+    const bid = b.tierMaxes[0].maxPrice;
+    assert.ok(b.assignment.pricePaid <= bid, 'never charged over the stated bid');
+  }
 });
 
 test('withdrawn bidders are never charged or seated', () => {

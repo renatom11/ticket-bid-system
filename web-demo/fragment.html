@@ -143,6 +143,16 @@
     background: var(--panel-2); border: 1px solid var(--line); cursor: pointer;
   }
   .schip.on { background: var(--ivory); color: #221e26; border-color: var(--ivory); font-weight: 600; }
+  .schip::before {
+    content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    margin-right: 5px; vertical-align: middle; background: var(--muted);
+  }
+  .schip[data-class="1"]::before { background: #4a6fa5; }
+  .schip[data-class="2"]::before { background: #4f96a8; }
+  .schip[data-class="3"]::before { background: #5eb37a; }
+  .schip[data-class="4"]::before { background: #d8a63f; }
+  .schip[data-class="5"]::before { background: #e05a4e; }
+  .class-key { font-size: 0.7rem; color: var(--muted); margin-top: 0.25rem; }
   .you-here {
     display: inline-block; margin-top: 0.35rem; padding: 0.1rem 0.5rem; border-radius: 999px;
     background: var(--ivory); color: #221e26;
@@ -313,7 +323,7 @@
         <h2>Your bid</h2>
         <div id="you-status"></div>
         <fieldset id="you-showings"><legend>Shows — <span id="showing-count"></span></legend></fieldset>
-        <fieldset id="you-tiers"><legend>Your max per tier — adjust any time before settlement</legend></fieldset>
+        <fieldset id="you-tiers"><legend>Your max per tier — what you'd pay at the most wanted showtime</legend></fieldset>
         <div class="row-actions">
           <button id="update-btn" class="primary">Update maxes</button>
           <button id="withdraw-btn" class="danger">Drop out — zero my bids</button>
@@ -449,7 +459,7 @@ function centerDistance(idx, count) {
 // The minimal price vector is then extracted with a difference-constraint
 // closure over the optimal assignment.
 
-function solveMarket({ showings, tiers, capacityPerShowing, bidders, hint }) {
+function solveMarket({ showings, tiers, capacityPerShowing, bidders, hint, showWeights }) {
   const nT = tiers.length;
   const nS = showings.length;
   const nC = nS * nT; // cell index = showIdx * nT + tierIdx
@@ -465,6 +475,17 @@ function solveMarket({ showings, tiers, capacityPerShowing, bidders, hint }) {
     }
   }
   const cellKey = (c) => `${showings[Math.floor(c / nT)]}|${tiers[c % nT].id}`;
+  // How much a stated bid is worth at each show. A bid is what you'd pay for
+  // the most desirable showtime; a less-wanted showtime is worth
+  // proportionally less to you, so weights are <= 1 and nobody is ever
+  // charged more than the max they stated.
+  const wOf = new Float64Array(nS).fill(1);
+  if (showWeights) {
+    showings.forEach((s, i) => {
+      const w = showWeights[s];
+      if (typeof w === 'number' && w > 0) wOf[i] = w;
+    });
+  }
 
   // Bidder records. Adjusted value at a cell = stated max - floor (seller
   // reserve); a bidder is only ever seated at non-negative adjusted surplus.
@@ -479,7 +500,7 @@ function solveMarket({ showings, tiers, capacityPerShowing, bidders, hint }) {
         if (si === undefined) continue;
         const c = si * nT + ti;
         accCells.push(c);
-        accVals.push(tm.maxPrice - floors[c]);
+        accVals.push(tm.maxPrice * wOf[si] - floors[c]);
       }
     }
     return { id: b.id, accCells, accVals, cell: -1, aval: 0 };
@@ -794,7 +815,9 @@ function solveMarket({ showings, tiers, capacityPerShowing, bidders, hint }) {
     const buyIn = new Map();
     for (let c = 0; c < nC; c++) {
       const contested = A[c] > 0 || evEnd[c] === 1;
-      buyIn.set(cellKey(c), A[c] === Infinity ? null : Math.round(floors[c] + A[c] + (contested ? 1 : 0)));
+      const needValue = A[c] === Infinity ? null : floors[c] + A[c] + (contested ? 1 : 0);
+      // Stated as a BID: your bid counts for bid x weight at this show.
+      buyIn.set(cellKey(c), needValue === null ? null : Math.ceil(needValue / wOf[Math.floor(c / nT)]));
     }
     return buyIn;
   }
@@ -831,10 +854,28 @@ function solveMarket({ showings, tiers, capacityPerShowing, bidders, hint }) {
 
 const STABLE_ROUNDS_TO_SETTLE = 2;
 
+// Every showtime belongs to one of five desirability classes. Everyone wants
+// a 5 most and a 1 least: a stated bid is what you'd pay at a class-5
+// showtime, and counts for proportionally less at weaker ones (weight <= 1,
+// so nobody is ever charged above the max they stated). `draw` also makes
+// better showtimes ones more people can make, mildly.
+const SHOW_CLASSES = {
+  1: { label: 'Undesirable', weight: 0.68, draw: 0.7, share: 0.15 },
+  2: { label: 'Moderately desirable', weight: 0.76, draw: 0.85, share: 0.2 },
+  3: { label: 'Desirable', weight: 0.84, draw: 1.0, share: 0.3 },
+  4: { label: 'Very desirable', weight: 0.92, draw: 1.2, share: 0.2 },
+  5: { label: 'Most desirable', weight: 1.0, draw: 1.4, share: 0.15 },
+};
+
 class Drop {
-  constructor({ name = 'Prototype Drop', showings, maxRounds = 60 } = {}) {
+  constructor({ name = 'Prototype Drop', showings, maxRounds = 60, rng = Math.random, showClasses } = {}) {
     this.name = name;
+    this.rng = rng;
     this.showings = [...(showings ?? ['Showing 1', 'Showing 2', 'Showing 3', 'Showing 4', 'Showing 5'])];
+    // Desirability class per showtime; pinnable for deterministic runs.
+    this.pinnedClass = showClasses ?? null;
+    this.showClass = new Map();
+    for (const s of this.showings) this.showClass.set(s, this.pinnedClass?.[s] ?? this.rollShowClass());
     this.maxRounds = maxRounds;
     this.phase = 'lobby'; // lobby -> bidding -> settled
     this.round = 0;
@@ -860,6 +901,27 @@ class Drop {
 
   touch() {
     this.bookVersion += 1;
+  }
+
+  rollShowClass() {
+    let r = this.rng();
+    for (const [cls, def] of Object.entries(SHOW_CLASSES)) {
+      r -= def.share;
+      if (r <= 0) return Number(cls);
+    }
+    return 3;
+  }
+
+  classOf(show) {
+    return this.showClass.get(show) ?? 3;
+  }
+
+  weightOf(show) {
+    return SHOW_CLASSES[this.classOf(show)].weight;
+  }
+
+  showWeights() {
+    return Object.fromEntries(this.showings.map((s) => [s, this.weightOf(s)]));
   }
 
   addBidder({ name, showings, tierMaxes, segment }) {
@@ -930,6 +992,7 @@ class Drop {
     for (let i = 0; i < count; i++) {
       const name = `Showing ${this.showings.length + 1}`;
       this.showings.push(name);
+      this.showClass.set(name, this.pinnedClass?.[name] ?? this.rollShowClass());
       added.push(name);
     }
     for (const b of this.bidders.values()) {
@@ -954,6 +1017,7 @@ class Drop {
       showings: this.showings,
       tiers: TIERS,
       capacityPerShowing: VENUE.capacityPerShowing,
+      showWeights: this.showWeights(),
       hint: this.cellPrices.size ? [...this.cellPrices] : undefined,
       bidders: [...this.bidders.values()]
         .filter((b) => !b.withdrawn && !b.pending)
@@ -1104,7 +1168,7 @@ class Drop {
     }
     const byShow = {};
     for (const s of this.showings) {
-      byShow[s] = {};
+      byShow[s] = { __class: this.classOf(s) };
       for (const t of TIER_ORDER) {
         byShow[s][t] = {
           price: this.cellPrices.get(`${s}|${t}`),
@@ -1113,6 +1177,7 @@ class Drop {
         };
       }
     }
+    const showClasses = Object.fromEntries(this.showings.map((s) => [s, this.classOf(s)]));
     const tierSpread = {};
     for (const t of TIER_ORDER) {
       const cells = this.showings.map((s) => byShow[s][t]);
@@ -1137,6 +1202,7 @@ class Drop {
       byShow,
       tierSpread,
       soldSeats,
+      showClasses,
     };
   }
 
@@ -1165,7 +1231,7 @@ class Drop {
         for (const s of b.showings) {
           if (!myShows.has(s)) continue;
           const p = this.cellPrices.get(`${s}|${tm.tierId}`);
-          if (p !== undefined && tm.maxPrice >= p) {
+          if (p !== undefined && tm.maxPrice * this.weightOf(s) >= p) {
             row.contenders += 1;
             break;
           }
@@ -1284,13 +1350,16 @@ const FOMO_MULT = 1.6;
 
 const floorOf = Object.fromEntries(TIERS.map((t) => [t.id, t.floorPrice]));
 
-// Per-drop show popularity (lognormal, wide — a Friday-night show really
-// does draw several times a weekday matinee): consistent across addBots
-// calls, extended when shows are added mid-drop.
+// How likely a bot is to be free for each show. Driven by the show's
+// desirability class (a Friday-night slot is one more people can make) with a
+// little personal noise, so availability and desire point the same way
+// without being identical.
 function popularity(drop, rng) {
   const pop = (drop.__showPopularity ??= new Map());
   for (const s of drop.showings) {
-    if (!pop.has(s)) pop.set(s, Math.exp(gaussian(rng) * 0.9));
+    if (!pop.has(s)) {
+      pop.set(s, SHOW_CLASSES[drop.classOf(s)].draw * Math.exp(gaussian(rng) * 0.25));
+    }
   }
   return pop;
 }
@@ -1382,7 +1451,7 @@ function adjustBots(drop, rng = Math.random) {
       const cap = bot.stretch[tm.tierId] ?? tm.maxPrice;
       for (const s of b.showings) {
         const p = drop.cellPrices.get(`${s}|${tm.tierId}`);
-        if (p !== undefined) cheapestGap = Math.min(cheapestGap, p - cap);
+        if (p !== undefined) cheapestGap = Math.min(cheapestGap, p - cap * drop.weightOf(s));
       }
     }
     const hopeless = cheapestGap !== Infinity && cheapestGap > 0;
@@ -1770,7 +1839,8 @@ function renderSeatMap(you) {
   chips.hidden = !settled;
   if (settled) {
     chips.innerHTML = drop.showings
-      .map((sh) => '<button type="button" class="schip' + (sh === show ? ' on' : '') + '" data-show="' + sh + '">' +
+      .map((sh) => '<button type="button" class="schip' + (sh === show ? ' on' : '') + '" data-show="' + sh +
+        '" data-class="' + drop.classOf(sh) + '" title="' + sh + ' · ' + SHOW_CLASSES[drop.classOf(sh)].label + '">' +
         sh.replace('Showing ', '').replace('Show ', '') + '</button>')
       .join('');
   }
@@ -1805,7 +1875,7 @@ function renderSeatMap(you) {
     }
   }
   $('#seat-detail').textContent = settled
-    ? 'Hover any seat for its exact price · ' + show
+    ? 'Hover any seat for its exact price · ' + show + ' (' + SHOW_CLASSES[drop.classOf(show)].label.toLowerCase() + ')'
     : '';
 }
 
@@ -1883,7 +1953,11 @@ function renderYou(you) {
     sf.insertAdjacentHTML('beforeend',
       '<div class="schip-row">' + drop.showings.map((s) =>
         '<button type="button" class="schip' + (you.showings.includes(s) ? ' on' : '') + '" data-show="' + s +
-        '" title="' + s + '">' + s.replace('Showing ', '') + '</button>').join('') + '</div>');
+        '" data-class="' + drop.classOf(s) + '" title="' + s + ' · ' + SHOW_CLASSES[drop.classOf(s)].label +
+        '">' + s.replace('Showing ', '') + '</button>').join('') +
+        '</div><div class="class-key">Dot = how wanted the showtime is · ' +
+        '<span style="color:#4a6fa5">●</span> least … <span style="color:#e05a4e">●</span> most. ' +
+        'Your max is what you\'d pay at the most wanted slot; weaker slots count for proportionally less, so you are never charged above it.</div>');
     $('#showing-count').textContent = 'you’re bidding on ' + you.showings.length + ' of ' + drop.showings.length;
     syncTierRowStates();
   }
@@ -1990,7 +2064,8 @@ function renderResults() {
     }).join('') + '</table>' +
     '<p class="hint" style="margin:0.4rem 0 0">Every seat in the same show and tier settled at the same price; the spread above is across shows. Pick a show on the seat map to price its seats one by one.</p>' +
     (selectedShow
-      ? '<h2 style="margin-top:1.1rem">' + selectedShow + '</h2><table class="results">' +
+      ? '<h2 style="margin-top:1.1rem">' + selectedShow + ' <span class="hint">— ' +
+        SHOW_CLASSES[drop.classOf(selectedShow)].label.toLowerCase() + ' showtime</span></h2><table class="results">' +
         '<tr><th>Tier</th><th>Price</th><th>Sold</th><th>Take</th></tr>' +
         TIERS.map((t) => {
           const c = r.byShow[selectedShow][t.id];

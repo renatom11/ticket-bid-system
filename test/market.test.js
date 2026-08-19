@@ -185,6 +185,51 @@ test('buy-in prices are exact: bidding buyIn+1 seats you, buyIn-1 does not', () 
   }
 });
 
+test('desirability weights: the wanted show prices higher, and nobody pays over their bid', () => {
+  // Identical rooms, identical crowd — only the desirability weight differs.
+  const inst = {
+    showings: ['Weak', 'Strong'],
+    tiers: [{ id: 't1', floorPrice: 10 }],
+    capacityPerShowing: { t1: 3 },
+    showWeights: { Weak: 0.68, Strong: 1.0 },
+    bidders: Array.from({ length: 12 }, (_, i) => ({
+      id: `b${i}`,
+      showings: ['Weak', 'Strong'],
+      tierMaxes: [{ tierId: 't1', maxPrice: 40 + i * 10 }],
+    })),
+  };
+  const { prices, assignments } = solveMarket(inst);
+  assert.ok(
+    prices.get('Strong|t1') > prices.get('Weak|t1'),
+    `strong show should cost more (got ${prices.get('Strong|t1')} vs ${prices.get('Weak|t1')})`
+  );
+  for (const [id, a] of assignments) {
+    const bid = inst.bidders.find((b) => b.id === id).tierMaxes[0].maxPrice;
+    assert.ok(a.price <= bid, `never charged over the stated bid (${a.price} > ${bid})`);
+  }
+});
+
+test('buy-in accounts for the weight: bidding it seats you at a weak show too', () => {
+  const inst = {
+    showings: ['Weak', 'Strong'],
+    tiers: [{ id: 't1', floorPrice: 10 }],
+    capacityPerShowing: { t1: 2 },
+    showWeights: { Weak: 0.68, Strong: 1.0 },
+    bidders: Array.from({ length: 8 }, (_, i) => ({
+      id: `b${i}`,
+      showings: ['Weak', 'Strong'],
+      tierMaxes: [{ tierId: 't1', maxPrice: 30 + i * 12 }],
+    })),
+  };
+  const { buyIn } = solveMarket(inst);
+  for (const show of ['Weak', 'Strong']) {
+    const bid = buyIn.get(`${show}|t1`);
+    const probe = { id: '__probe', showings: [show], tierMaxes: [{ tierId: 't1', maxPrice: bid }] };
+    const out = solveMarket({ ...inst, bidders: [...inst.bidders, probe] });
+    assert.ok(out.assignments.has('__probe'), `${show}: bidding buyIn ${bid} should seat you`);
+  }
+});
+
 test('second-price flavor: the marginal loser sets the price', () => {
   const inst = {
     showings: ['S1'],

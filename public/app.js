@@ -1,5 +1,6 @@
 let venue = null;
 let tiers = [];
+let showClasses = {};
 let state = null;
 let pendingTier = null;
 const FLAT_PRICE = 30;
@@ -27,6 +28,7 @@ async function boot() {
   const v = await api('/api/venue');
   venue = v.venue;
   tiers = v.tiers;
+  showClasses = v.classes ?? {};
   renderLegend();
   await refresh();
   buildJoinForm();
@@ -225,7 +227,10 @@ function renderSeatMap() {
   chips.hidden = !r;
   if (r) {
     chips.innerHTML = state.showings
-      .map((sh) => `<button type="button" class="chip${sh === show ? ' on' : ''}" data-show="${sh}">${sh.replace(/^Showing /, '')}</button>`)
+      .map((sh) => {
+        const c = state.showClasses?.[sh] ?? 3;
+        return `<button type="button" class="chip${sh === show ? ' on' : ''}" data-show="${sh}" data-class="${c}" title="${sh} · ${showClasses[c]?.label ?? ''}">${sh.replace(/^Showing /, '')}</button>`;
+      })
       .join('');
   }
   el.innerHTML = '<div class="screen">SCREEN</div>';
@@ -391,14 +396,17 @@ function renderYou() {
   const sf = $('#you-showings');
   sf.hidden = false;
   sf.querySelectorAll('.chip-row').forEach((n) => n.remove());
+  const cls = (s) => state.showClasses?.[s] ?? 3;
+  const label = (s) => showClasses[cls(s)]?.label ?? '';
   sf.insertAdjacentHTML(
     'beforeend',
     `<div class="chip-row">${state.showings
       .map(
         (s) =>
-          `<button type="button" class="chip${you.showings.includes(s) ? ' on' : ''}" data-show="${s}" title="${s}">${s.replace('Showing ', '')}</button>`
+          `<button type="button" class="chip${you.showings.includes(s) ? ' on' : ''}" data-show="${s}" data-class="${cls(s)}" title="${s} · ${label(s)}">${s.replace('Showing ', '')}</button>`
       )
-      .join('')}</div>`
+      .join('')}</div>
+     <div class="class-key">Dot = how wanted the showtime is · least … most. Your max is what you'd pay at the most wanted slot; weaker slots count for proportionally less, so you are never charged above it.</div>`
   );
   $('#showing-count').textContent = `you're bidding on ${you.showings.length} of ${state.showings.length}`;
   syncTierRowStates();
@@ -477,7 +485,7 @@ function renderResults() {
     })
     .join('');
   const showTable = selectedShow && r.byShow[selectedShow]
-    ? `<h2 style="margin-top:1.1rem">${selectedShow}</h2>
+    ? `<h2 style="margin-top:1.1rem">${selectedShow} <span class="muted">— ${(showClasses[state.showClasses?.[selectedShow] ?? 3]?.label ?? '').toLowerCase()} showtime</span></h2>
        <table class="results"><tr><th>Tier</th><th>Price</th><th>Sold</th><th>Take</th></tr>${tiers
          .map((t) => {
            const c = r.byShow[selectedShow][t.id];

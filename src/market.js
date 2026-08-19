@@ -25,7 +25,7 @@
 // The minimal price vector is then extracted with a difference-constraint
 // closure over the optimal assignment.
 
-export function solveMarket({ showings, tiers, capacityPerShowing, bidders, hint }) {
+export function solveMarket({ showings, tiers, capacityPerShowing, bidders, hint, showWeights }) {
   const nT = tiers.length;
   const nS = showings.length;
   const nC = nS * nT; // cell index = showIdx * nT + tierIdx
@@ -41,6 +41,17 @@ export function solveMarket({ showings, tiers, capacityPerShowing, bidders, hint
     }
   }
   const cellKey = (c) => `${showings[Math.floor(c / nT)]}|${tiers[c % nT].id}`;
+  // How much a stated bid is worth at each show. A bid is what you'd pay for
+  // the most desirable showtime; a less-wanted showtime is worth
+  // proportionally less to you, so weights are <= 1 and nobody is ever
+  // charged more than the max they stated.
+  const wOf = new Float64Array(nS).fill(1);
+  if (showWeights) {
+    showings.forEach((s, i) => {
+      const w = showWeights[s];
+      if (typeof w === 'number' && w > 0) wOf[i] = w;
+    });
+  }
 
   // Bidder records. Adjusted value at a cell = stated max - floor (seller
   // reserve); a bidder is only ever seated at non-negative adjusted surplus.
@@ -55,7 +66,7 @@ export function solveMarket({ showings, tiers, capacityPerShowing, bidders, hint
         if (si === undefined) continue;
         const c = si * nT + ti;
         accCells.push(c);
-        accVals.push(tm.maxPrice - floors[c]);
+        accVals.push(tm.maxPrice * wOf[si] - floors[c]);
       }
     }
     return { id: b.id, accCells, accVals, cell: -1, aval: 0 };
@@ -370,7 +381,9 @@ export function solveMarket({ showings, tiers, capacityPerShowing, bidders, hint
     const buyIn = new Map();
     for (let c = 0; c < nC; c++) {
       const contested = A[c] > 0 || evEnd[c] === 1;
-      buyIn.set(cellKey(c), A[c] === Infinity ? null : Math.round(floors[c] + A[c] + (contested ? 1 : 0)));
+      const needValue = A[c] === Infinity ? null : floors[c] + A[c] + (contested ? 1 : 0);
+      // Stated as a BID: your bid counts for bid x weight at this show.
+      buyIn.set(cellKey(c), needValue === null ? null : Math.ceil(needValue / wOf[Math.floor(c / nT)]));
     }
     return buyIn;
   }

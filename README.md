@@ -54,6 +54,25 @@ The zones are our own, based on geometry rather than AMC's recommended-seat colo
 One drop = 5 simultaneous showings of that room, so e.g. Tier 1 has just 60 seats total (and the
 Shows control can add more rooms mid-drop).
 
+## Showtime desirability
+
+Every showtime belongs to one of five classes, and everyone values them the same way — a 5 is the
+slot people most want, a 1 the least:
+
+| Class | Showtime | Bid counts for | Draw |
+|---|---|---|---|
+| 5 | Most desirable | 100% | 1.4x |
+| 4 | Very desirable | 92% | 1.2x |
+| 3 | Desirable | 84% | 1.0x |
+| 2 | Moderately desirable | 76% | 0.85x |
+| 1 | Undesirable | 68% | 0.7x |
+
+A stated max is **what you'd pay at the most wanted slot**; at a weaker slot the same bid counts
+for proportionally less, so nobody is ever charged above the max they stated. Prices come out in
+a ladder — in a six-show run: class 5 → $57, class 4 → $47 and $43, class 3 → $40, class 2 → $35
+for the same Prime Center seats. Without this, flexible buyers arbitrage every showtime to an
+identical price, which is not how a Friday night compares to a Tuesday matinee.
+
 ## The simulated crowd
 
 Demo bidders are drawn from five socioeconomic segments (`src/bots.js`), each with a lognormal
@@ -71,9 +90,8 @@ student caps out near $20:
 On top of the money scale, each bot has a behavioral profile:
 
 - **Availability**: an equal chance of being able to attend 1, 2, ... up to all N shows, with the
-  specific shows drawn by per-show popularity (a hot Friday-night show draws several times a
-  weekday matinee) — so hot-show premiums emerge naturally when a show's single-show-only demand
-  outgrows one room.
+  specific shows drawn by how well-attended that slot is — which follows its desirability class
+  (see below), plus personal noise.
 - **Two-zone valuations, per tier**: a *comfort* price they'll bid up to quickly while losing,
   and a *stretch* ceiling (comfort x (1 + tolerance), tolerance drawn separately per tier) they
   grind toward reluctantly before giving up.

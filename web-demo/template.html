@@ -143,6 +143,16 @@
     background: var(--panel-2); border: 1px solid var(--line); cursor: pointer;
   }
   .schip.on { background: var(--ivory); color: #221e26; border-color: var(--ivory); font-weight: 600; }
+  .schip::before {
+    content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    margin-right: 5px; vertical-align: middle; background: var(--muted);
+  }
+  .schip[data-class="1"]::before { background: #4a6fa5; }
+  .schip[data-class="2"]::before { background: #4f96a8; }
+  .schip[data-class="3"]::before { background: #5eb37a; }
+  .schip[data-class="4"]::before { background: #d8a63f; }
+  .schip[data-class="5"]::before { background: #e05a4e; }
+  .class-key { font-size: 0.7rem; color: var(--muted); margin-top: 0.25rem; }
   .you-here {
     display: inline-block; margin-top: 0.35rem; padding: 0.1rem 0.5rem; border-radius: 999px;
     background: var(--ivory); color: #221e26;
@@ -313,7 +323,7 @@
         <h2>Your bid</h2>
         <div id="you-status"></div>
         <fieldset id="you-showings"><legend>Shows — <span id="showing-count"></span></legend></fieldset>
-        <fieldset id="you-tiers"><legend>Your max per tier — adjust any time before settlement</legend></fieldset>
+        <fieldset id="you-tiers"><legend>Your max per tier — what you'd pay at the most wanted showtime</legend></fieldset>
         <div class="row-actions">
           <button id="update-btn" class="primary">Update maxes</button>
           <button id="withdraw-btn" class="danger">Drop out — zero my bids</button>
@@ -637,7 +647,8 @@ function renderSeatMap(you) {
   chips.hidden = !settled;
   if (settled) {
     chips.innerHTML = drop.showings
-      .map((sh) => '<button type="button" class="schip' + (sh === show ? ' on' : '') + '" data-show="' + sh + '">' +
+      .map((sh) => '<button type="button" class="schip' + (sh === show ? ' on' : '') + '" data-show="' + sh +
+        '" data-class="' + drop.classOf(sh) + '" title="' + sh + ' · ' + SHOW_CLASSES[drop.classOf(sh)].label + '">' +
         sh.replace('Showing ', '').replace('Show ', '') + '</button>')
       .join('');
   }
@@ -672,7 +683,7 @@ function renderSeatMap(you) {
     }
   }
   $('#seat-detail').textContent = settled
-    ? 'Hover any seat for its exact price · ' + show
+    ? 'Hover any seat for its exact price · ' + show + ' (' + SHOW_CLASSES[drop.classOf(show)].label.toLowerCase() + ')'
     : '';
 }
 
@@ -750,7 +761,11 @@ function renderYou(you) {
     sf.insertAdjacentHTML('beforeend',
       '<div class="schip-row">' + drop.showings.map((s) =>
         '<button type="button" class="schip' + (you.showings.includes(s) ? ' on' : '') + '" data-show="' + s +
-        '" title="' + s + '">' + s.replace('Showing ', '') + '</button>').join('') + '</div>');
+        '" data-class="' + drop.classOf(s) + '" title="' + s + ' · ' + SHOW_CLASSES[drop.classOf(s)].label +
+        '">' + s.replace('Showing ', '') + '</button>').join('') +
+        '</div><div class="class-key">Dot = how wanted the showtime is · ' +
+        '<span style="color:#4a6fa5">●</span> least … <span style="color:#e05a4e">●</span> most. ' +
+        'Your max is what you\'d pay at the most wanted slot; weaker slots count for proportionally less, so you are never charged above it.</div>');
     $('#showing-count').textContent = 'you’re bidding on ' + you.showings.length + ' of ' + drop.showings.length;
     syncTierRowStates();
   }
@@ -857,7 +872,8 @@ function renderResults() {
     }).join('') + '</table>' +
     '<p class="hint" style="margin:0.4rem 0 0">Every seat in the same show and tier settled at the same price; the spread above is across shows. Pick a show on the seat map to price its seats one by one.</p>' +
     (selectedShow
-      ? '<h2 style="margin-top:1.1rem">' + selectedShow + '</h2><table class="results">' +
+      ? '<h2 style="margin-top:1.1rem">' + selectedShow + ' <span class="hint">— ' +
+        SHOW_CLASSES[drop.classOf(selectedShow)].label.toLowerCase() + ' showtime</span></h2><table class="results">' +
         '<tr><th>Tier</th><th>Price</th><th>Sold</th><th>Take</th></tr>' +
         TIERS.map((t) => {
           const c = r.byShow[selectedShow][t.id];

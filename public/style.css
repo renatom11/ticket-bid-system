@@ -127,6 +127,16 @@ button.step { padding: 0.15rem 0.4rem; font-size: 0.72rem; }
   background: var(--panel-2); border: 1px solid #343847; cursor: pointer;
 }
 .chip.on { background: var(--text); color: var(--bg); border-color: var(--text); font-weight: 600; }
+.chip-row .chip::before {
+  content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+  margin-right: 5px; vertical-align: middle; background: var(--muted);
+}
+.chip-row .chip[data-class="1"]::before { background: #4a6fa5; }
+.chip-row .chip[data-class="2"]::before { background: #4f96a8; }
+.chip-row .chip[data-class="3"]::before { background: #5eb37a; }
+.chip-row .chip[data-class="4"]::before { background: #d8a63f; }
+.chip-row .chip[data-class="5"]::before { background: #e05a4e; }
+.class-key { font-size: 0.72rem; color: var(--muted); margin-top: 0.25rem; }
 .you-here {
   display: inline-block; margin-top: 0.35rem; padding: 0.1rem 0.5rem; border-radius: 999px;
   background: var(--text); color: var(--bg);
