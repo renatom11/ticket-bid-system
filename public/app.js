@@ -3,6 +3,9 @@ let tiers = [];
 let state = null;
 let pendingTier = null;
 const FLAT_PRICE = 30;
+// Your typed max for every tier, kept even while a tier is switched off, so
+// toggling a tier never destroys a number you entered.
+let myMaxes = {};
 let bidderId = sessionStorage.getItem('bidderId');
 
 const $ = (sel) => document.querySelector(sel);
@@ -121,16 +124,16 @@ function renderTierBoard() {
   }
 }
 
-// Clicking a tier card stages a switch; Confirm applies it: the clicked
-// tier's max becomes exactly its clock price, better tiers are released,
-// and worse tiers stay as fallbacks.
+// One rule, every time: clicking a tier makes it your target — you offer its
+// buy-in price, you stop offering anything BETTER, and cheaper tiers stay on
+// as fallbacks. Switched-off tiers keep their numbers, so undo is one click.
 async function switchToTier(tierId) {
   const you = state?.you;
   if (!you || you.withdrawn || state.phase === 'settled') return;
-  const b = tierBuyInOf(tierId, you) ?? state.prices[tierId];
+  myMaxes[tierId] = tierBuyInOf(tierId, you) ?? state.prices[tierId];
   const idx = tiers.findIndex((t) => t.id === tierId);
   const fallbacks = you.tierMaxes.filter((tm) => tiers.findIndex((t) => t.id === tm.tierId) > idx);
-  const tierMaxes = [{ tierId, maxPrice: b }, ...fallbacks];
+  const tierMaxes = [{ tierId, maxPrice: myMaxes[tierId] }, ...fallbacks];
   try {
     await api('/api/update', { bidderId, tierMaxes });
     pendingTier = null;
@@ -167,9 +170,10 @@ function renderPendingBar() {
   const kept = you.tierMaxes.filter((tm) => tiers.findIndex((t) => t.id === tm.tierId) > idx).map((tm) => shortName(tm.tierId));
   const bIn = tierBuyInOf(pendingTier, you);
   $('#pending-text').innerHTML =
-    `Buy into <b>${tierById(pendingTier).name}</b> at <b>$${bIn ?? state.prices[pendingTier]}</b>? You'll be seated instantly — and guaranteed that spot at settlement if equilibrium arrives with you seated. If the market keeps climbing you may be outbid; raise your max to hold on.` +
-    (released.length ? ` Releases ${released.join(' and ')}.` : '') +
-    (kept.length ? ` Keeps ${kept.join(' and ')} as fallback.` : '');
+    `<b>Target ${tierById(pendingTier).name}</b> — offer <b>$${bIn ?? state.prices[pendingTier]}</b> (seats you now)` +
+    (released.length ? ` · switch off ${released.join(', ')}` : '') +
+    (kept.length ? ` · keep ${kept.join(', ')} as fallback` : '') +
+    `. Switched-off tiers keep their numbers — click one to come back.`;
   bar.hidden = false;
 }
 
@@ -347,6 +351,7 @@ function renderYou() {
       .join('')}</div>`
   );
   $('#showing-count').textContent = `you're bidding on ${you.showings.length} of ${state.showings.length}`;
+  syncTierRowStates();
 
   // maxes editor (don't rebuild while user is typing in it)
   const tf = $('#you-tiers');
@@ -358,26 +363,41 @@ function renderYou() {
     tf.querySelectorAll('.tier-row').forEach((n) => n.remove());
     for (const t of tiers) {
       const tm = you.tierMaxes.find((x) => x.tierId === t.id);
-      const steppers = ['-100', '-10', '-1', '+1', '+10', '+100']
-        .map((s) => `<button type="button" class="step" data-step="${s}" data-tier="${t.id}">${s}</button>`)
-        .join('');
+      if (tm) myMaxes[t.id] = tm.maxPrice;
+      if (myMaxes[t.id] === undefined) myMaxes[t.id] = suggestedMax(t.id);
+      const steps = (list) =>
+        `<span class="steppers">${list
+          .map((v) => `<button type="button" class="step" data-step="${v}" data-tier="${t.id}">${v}</button>`)
+          .join('')}</span>`;
       tf.insertAdjacentHTML(
         'beforeend',
-        `<div class="tier-row">
+        `<div class="tier-row${tm ? '' : ' off'}">
           <label class="trow-name">
             <input type="checkbox" name="ytier" value="${t.id}" ${tm ? 'checked' : ''}>
             <span class="tier-dot" style="background:var(--${t.id})"></span>${t.name}
           </label>
-          <span class="trow-max">max $ <input type="number" name="ymax-${t.id}" min="0" value="${tm ? tm.maxPrice : suggestedMax(t.id)}"></span>
-          <span class="steppers">${steppers}</span>
+          ${steps(['-100', '-10', '-1'])}
+          <span class="trow-max">$ <input type="number" name="ymax-${t.id}" min="0" value="${myMaxes[t.id]}"></span>
+          ${steps(['+1', '+10', '+100'])}
         </div>`
       );
     }
   }
 }
 
+function syncTierRowStates() {
+  for (const row of document.querySelectorAll('#you-tiers .tier-row')) {
+    const box = row.querySelector('input[name="ytier"]');
+    row.classList.toggle('off', box && !box.checked);
+  }
+}
+
 async function updateMaxes() {
   $('#you-error').textContent = '';
+  for (const t of tiers) {
+    const input = document.querySelector(`input[name="ymax-${t.id}"]`);
+    if (input) myMaxes[t.id] = Math.max(0, Number(input.value || 0));
+  }
   const tierMaxes = tiers
     .filter((t) => document.querySelector(`input[name="ytier"][value="${t.id}"]`)?.checked)
     .map((t) => ({ tierId: t.id, maxPrice: Number(document.querySelector(`input[name="ymax-${t.id}"]`).value) }));
@@ -479,6 +499,11 @@ function wireButtons() {
     } catch (err) {
       $('#you-error').textContent = err.message;
     }
+  });
+  $('#you-tiers').addEventListener('change', (e) => {
+    if (e.target.name !== 'ytier') return;
+    syncTierRowStates();
+    updateMaxes();
   });
   $('#you-tiers').addEventListener('click', (e) => {
     const btn = e.target.closest('button.step');

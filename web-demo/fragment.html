@@ -18,7 +18,11 @@
     --body: "Public Sans", system-ui, sans-serif;
     --mono: "IBM Plex Mono", ui-monospace, monospace;
   }
-  * { box-sizing: border-box; }
+  * { box-sizing: border-box; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+  ::-webkit-scrollbar { width: 7px; height: 7px; }
+  ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+  ::-webkit-scrollbar-track { background: transparent; }
   body {
     margin: 0;
     background: var(--bg);
@@ -117,19 +121,21 @@
   .flat-stat .lift-down { color: var(--t5); }
   .tier-row {
     border: 1px solid var(--line); border-radius: 8px;
-    padding: 0.45rem 0.6rem; margin: 0.4rem 0;
-    display: grid; grid-template-columns: 1fr auto; gap: 0.35rem 0.6rem; align-items: center;
+    padding: 0.3rem 0.5rem; margin: 0.3rem 0;
+    display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap;
   }
   .tier-row .trow-name {
-    display: flex; align-items: center; gap: 0.5rem;
-    font-size: 0.86rem; cursor: pointer; margin: 0;
+    display: flex; align-items: center; gap: 0.45rem;
+    flex: 1 1 140px; font-size: 0.85rem; cursor: pointer; margin: 0;
   }
   .tier-row .trow-max {
-    display: flex; align-items: center; gap: 0.35rem; justify-self: end;
-    font-size: 0.84rem; white-space: nowrap; color: var(--muted);
+    display: flex; align-items: center; gap: 0.25rem;
+    font-size: 0.8rem; white-space: nowrap; color: var(--muted);
   }
-  .tier-row input[type="number"] { width: 76px; margin: 0; text-align: right; color: var(--text); }
-  .tier-row .steppers { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 3px; }
+  .tier-row input[type="number"] { width: 62px; margin: 0; text-align: right; color: var(--text); padding: 0.25rem 0.35rem; }
+  .tier-row .steppers { display: flex; gap: 2px; }
+  .tier-row.off { opacity: 0.5; }
+  .tier-row.off .trow-name { text-decoration: line-through; text-decoration-color: var(--muted); }
   .schip-row { display: flex; flex-wrap: wrap; gap: 0.35rem; padding: 0.2rem 0; }
   .schip {
     border-radius: 999px; padding: 0.22rem 0.68rem; font-size: 0.8rem;
@@ -167,10 +173,12 @@
       grid-template-rows: auto auto minmax(0, 1fr); gap: 0.8rem;
       overflow: hidden;
     }
-    .tier-board { grid-column: 1 / -1; grid-template-columns: repeat(5, minmax(0, 1fr)); margin-bottom: 0; }
-    .pending-bar { grid-column: 1 / -1; margin: 0; }
+    .tier-board { grid-column: 1 / -1; grid-row: 1; grid-template-columns: repeat(5, minmax(0, 1fr)); margin-bottom: 0; }
+    .pending-bar { grid-column: 1 / -1; grid-row: 2; margin: 0; }
     .columns { display: contents; }
-    .columns > .panel { margin: 0; min-height: 0; overflow-y: auto; }
+    .columns > .panel { margin: 0; min-height: 0; overflow-y: auto; grid-row: 3; }
+    .columns > .panel:nth-child(1) { grid-column: 1; }
+    .columns > .panel:nth-child(2) { grid-column: 2; }
     .tier-card { padding: 0.5rem 0.7rem; }
     .tier-card .tname { font-size: 0.82rem; }
     .tier-card .price { font-size: 1.35rem; }
@@ -181,15 +189,16 @@
   .panel { background: var(--panel); border-radius: 10px; padding: 1rem 1.1rem; margin-bottom: 1rem; }
   .hint { color: var(--muted); font-weight: 400; font-size: 0.78rem; text-transform: none; letter-spacing: 0; font-family: var(--body); }
 
-  .seat-map { overflow-x: auto; }
-  .seat-map .inner { min-width: 560px; }
+  .seat-map { overflow: hidden; }
+  .seat-map .inner { --seat: 11px; }
   .seat-map .screen {
     background: linear-gradient(180deg, #6a6570, #4a4650); color: #ddd8e0; text-align: center; border-radius: 6px;
     font-family: var(--display); font-size: 0.7rem; letter-spacing: 0.5em; padding: 2px 0 2px 0.5em; margin-bottom: 10px;
   }
   .seat-row { display: flex; align-items: center; gap: 2px; margin-bottom: 2px; justify-content: center; }
-  .seat-row .rl { width: 15px; font-family: var(--mono); font-size: 0.6rem; color: var(--muted); text-align: center; }
-  .seat { width: 11px; height: 11px; border-radius: 2.5px; flex: none; opacity: 0.85; }
+  .seat-row .rl { width: 15px; font-family: var(--mono); font-size: 0.58rem; color: var(--muted); text-align: center; }
+  .seat-row { gap: var(--seat-gap, 2px); }
+  .seat { width: var(--seat, 11px); height: var(--seat, 11px); border-radius: 2.5px; flex: none; opacity: 0.85; }
   .seat.t1 { background: var(--t1); }
   .seat.t2 { background: var(--t2); }
   .seat.t3 { background: var(--t3); }
@@ -227,8 +236,8 @@
   .error { color: var(--t4); font-size: 0.85rem; min-height: 1.2em; margin: 0.4rem 0 0; }
 
   .you-status-card {
-    background: var(--panel-2); border-radius: 8px; padding: 0.7rem 0.9rem; margin-bottom: 0.6rem;
-    font-size: 0.9rem; line-height: 1.5;
+    background: var(--panel-2); border-radius: 8px; padding: 0.55rem 0.8rem; margin-bottom: 0.5rem;
+    font-size: 0.86rem; line-height: 1.45;
   }
   .big { font-family: var(--display); font-size: 1.3rem; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; }
   .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
@@ -1377,6 +1386,9 @@ function lognormal(median, sigma, rng) {
 const tierById = (id) => TIERS.find((t) => t.id === id);
 
 const LOBBY_SECONDS = 15, ROUND_SECONDS = 8, SEED_BOTS = 2500, FLAT_PRICE = 30;
+// Your typed max for every tier, kept even while a tier is switched off, so
+// toggling a tier never destroys a number you entered.
+let myMaxes = {};
 let drop, youId, lobbyEndsAt, nextTickAt, timer, prevPrices, pendingTier;
 
 const $ = (s) => document.querySelector(s);
@@ -1386,6 +1398,7 @@ const suggestedMax = (id) => ({ t1: 120, t2: 80, t3: 55, t4: 35, t5: 20 })[id] ?
 function reset() {
   clearTimeout(timer);
   timer = null; lobbyEndsAt = null; nextTickAt = null; youId = null; pendingTier = null;
+  myMaxes = Object.fromEntries(TIERS.map((t) => [t.id, suggestedMax(t.id)]));
   drop = new Drop({});
   prevPrices = { ...drop.prices };
   addBots(drop, SEED_BOTS);
@@ -1489,6 +1502,7 @@ function render() {
   renderTierBoard(you);
   renderPendingBar(you);
   renderSeatMap(you);
+  fitSeatMap();
   renderYou(you);
   renderResults();
   $('#bot-count').textContent = [...drop.bidders.values()].filter((b) => !b.withdrawn && b.id !== youId).length.toLocaleString();
@@ -1558,13 +1572,17 @@ function renderTierBoard(you) {
 // Clicking a tier card stages a switch; Confirm applies it: the clicked
 // tier's max becomes exactly its clock price, better tiers are released,
 // and worse tiers stay as fallbacks.
+// One rule, every time: clicking a tier makes it your target — you offer its
+// buy-in price, you stop offering anything BETTER (you can't be pulled up into
+// a tier you just declined), and cheaper tiers stay on as fallbacks. Switched
+// -off tiers keep their numbers, so it is always one click to undo.
 function switchToTier(tierId) {
   const you = youId && drop.bidders.get(youId);
   if (!you || you.withdrawn || drop.phase === 'settled') return;
-  const b = tierBuyIn(tierId, you) ?? drop.prices[tierId];
+  myMaxes[tierId] = tierBuyIn(tierId, you) ?? drop.prices[tierId];
   const idx = TIER_ORDER.indexOf(tierId);
-  const fallbacks = you.tierMaxes.filter((tm) => TIER_ORDER.indexOf(tm.tierId) > idx);
-  you.tierMaxes = [{ tierId, maxPrice: b }, ...fallbacks];
+  const keep = you.tierMaxes.filter((tm) => TIER_ORDER.indexOf(tm.tierId) > idx);
+  you.tierMaxes = [{ tierId, maxPrice: myMaxes[tierId] }, ...keep];
   drop.touch();
   pendingTier = null;
   $('#you-tiers').dataset.built = '';
@@ -1597,10 +1615,10 @@ function renderPendingBar(you) {
   const you2 = youId && drop.bidders.get(youId);
   const bIn = tierBuyIn(pendingTier, you2);
   $('#pending-text').innerHTML =
-    'Buy into <b>' + tierById(pendingTier).name + '</b> at <b class="mono">$' + (bIn ?? drop.prices[pendingTier]) +
-    '</b>? You’ll be seated instantly — and guaranteed that spot at settlement if equilibrium arrives with you seated. If the market keeps climbing you may be outbid; raise your max to hold on.' +
-    (released.length ? ' Releases ' + released.join(' and ') + '.' : '') +
-    (kept.length ? ' Keeps ' + kept.join(' and ') + ' as fallback.' : '');
+    '<b>Target ' + tierById(pendingTier).name + '</b> — offer <b class="mono">$' + (bIn ?? drop.prices[pendingTier]) + '</b> (seats you now)' +
+    (released.length ? ' · switch off ' + released.join(', ') : '') +
+    (kept.length ? ' · keep ' + kept.join(', ') + ' as fallback' : '') +
+    '. Switched-off tiers keep their numbers — click one to come back.';
   bar.hidden = false;
 }
 
@@ -1629,6 +1647,20 @@ function sparkline(hist) {
   return '<svg class="spark" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" aria-hidden="true">' +
     '<polyline points="' + pts + '"/><circle cx="' + ex.toFixed(1) + '" cy="' + ey.toFixed(1) + '" r="2.4"/></svg>';
 }
+
+// Seats shrink to fit their column so the map never scrolls sideways.
+function fitSeatMap() {
+  const el = $('#seat-map');
+  const box = el.parentElement;
+  const width = box.clientWidth;
+  if (!width) return;
+  const maxSeats = Math.max(...VENUE.rows.map((r) => r.seats.length));
+  const gap = width < 420 ? 1 : 2;
+  const size = Math.max(3, Math.min(11, Math.floor((width - 40 - maxSeats * gap) / maxSeats)));
+  el.style.setProperty('--seat', size + 'px');
+  el.style.setProperty('--seat-gap', gap + 'px');
+}
+addEventListener('resize', fitSeatMap);
 
 function renderSeatMap(you) {
   const el = $('#seat-map');
@@ -1709,6 +1741,7 @@ function renderYou(you) {
         '<button type="button" class="schip' + (you.showings.includes(s) ? ' on' : '') + '" data-show="' + s +
         '" title="' + s + '">' + s.replace('Showing ', '') + '</button>').join('') + '</div>');
     $('#showing-count').textContent = 'you’re bidding on ' + you.showings.length + ' of ' + drop.showings.length;
+    syncTierRowStates();
   }
 
   if (you.withdrawn) {
@@ -1754,14 +1787,16 @@ function renderYou(you) {
     tf.querySelectorAll('.tier-row').forEach((n) => n.remove());
     for (const t of TIERS) {
       const tm = you.tierMaxes.find((x) => x.tierId === t.id);
+      if (tm) myMaxes[t.id] = tm.maxPrice;
+      const steps = (list) => '<span class="steppers">' + list.map((v) =>
+        '<button type="button" class="step" data-step="' + v + '" data-tier="' + t.id + '">' + v + '</button>').join('') + '</span>';
       tf.insertAdjacentHTML('beforeend',
-        '<div class="tier-row">' +
+        '<div class="tier-row' + (tm ? '' : ' off') + '">' +
         '<label class="trow-name"><input type="checkbox" name="ytier" value="' + t.id + '"' + (tm ? ' checked' : '') + '>' +
         '<span class="tier-dot" style="background:var(--' + t.id + ')"></span>' + t.name + '</label>' +
-        '<span class="trow-max">max $ <input type="number" name="ymax-' + t.id + '" min="0" value="' + (tm ? tm.maxPrice : suggestedMax(t.id)) + '"></span>' +
-        '<span class="steppers">' + ['-100', '-10', '-1', '+1', '+10', '+100'].map((s) =>
-          '<button type="button" class="step" data-step="' + s + '" data-tier="' + t.id + '">' + s + '</button>'
-        ).join('') + '</span>' +
+        steps(['-100', '-10', '-1']) +
+        '<span class="trow-max">$ <input type="number" name="ymax-' + t.id + '" min="0" value="' + myMaxes[t.id] + '"></span>' +
+        steps(['+1', '+10', '+100']) +
         '</div>');
     }
   }
@@ -1770,6 +1805,10 @@ function renderYou(you) {
 function updateMaxes() {
   $('#you-error').textContent = '';
   const you = drop.bidders.get(youId);
+  for (const t of TIERS) {
+    const input = document.querySelector('input[name="ymax-' + t.id + '"]');
+    if (input) myMaxes[t.id] = Math.max(0, Number(input.value || 0));
+  }
   const cleaned = readTierMaxes('y').filter((tm) => tm.maxPrice >= 0);
   if (cleaned.length === 0) {
     $('#you-error').textContent = 'Keep at least one tier, or drop out instead';
@@ -1856,6 +1895,17 @@ $('#you-showings').addEventListener('click', (e) => {
   drop.touch();
   render();
   resolveNow();
+});
+function syncTierRowStates() {
+  for (const row of document.querySelectorAll('#you-tiers .tier-row')) {
+    const box = row.querySelector('input[name="ytier"]');
+    row.classList.toggle('off', box && !box.checked);
+  }
+}
+$('#you-tiers').addEventListener('change', (e) => {
+  if (e.target.name !== 'ytier') return;
+  syncTierRowStates();
+  updateMaxes();
 });
 $('#you-tiers').addEventListener('click', (e) => {
   const btn = e.target.closest('button.step');
